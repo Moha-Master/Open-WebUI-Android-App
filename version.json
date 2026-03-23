@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "versionCode": 1,
+  "versionName": "0.0.1",
+  "releaseNotes": "Initial release of OpenWebUI Android WebView wrapper with dark mode support"
+}

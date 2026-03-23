@@ -1,0 +1,165 @@
+# Android Studio
+*.iml
+*.ipr
+*.iws
+*.hprof
+*.pyc
+.gradle
+.gradle-wrapper
+build/
+/bin
+/gen
+/out
+
+# Exclude Gradle cache files but keep wrapper
+.gradle/**
+!gradle/wrapper/gradle-wrapper.jar
+.gradle/
+!gradle/wrapper/
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Android Studio cache
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+/.idea/compiler.xml
+/.idea/encodings.xml
+/.idea/jarRepositories.xml
+/.idea/misc.xml
+/.idea/runConfigurations.xml
+/.idea/vcs.xml
+/.idea/modules.xml~
+
+# Android Studio Navigation editor temp files
+.navigation/
+
+# Android Studio captures folder
+/captures
+
+# External native build folder generated in Android Studio 2.2 and later
+.externalNativeBuild
+
+# Android native libs
+lib/
+libs/
+
+# Android build cache
+.cxx/
+
+# Android coverage reports
+*.ec
+
+# Keystore
+*.keystore
+*.jks
+
+# Debug keystore
+debug.keystore
+.debug.keystore
+
+# Compiled Scala files
+*.tasty
+*.scala_bak
+
+# SBT project target
+target/
+
+# Unit test reports
+test-report/
+test-reports/
+jacoco/
+
+# Code coverage results
+coverage/
+
+# Cache
+.cache/
+
+# IDE related
+.vscode/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Android APKs
+*.apk
+*.ap_
+*.aab
+
+# Compiled class file
+*.class
+
+# Log Files
+*.log
+
+# Compiled jar/war archives
+*.jar
+*.war
+*.nar
+
+# Ignore local gradle caches but not wrapper jar
+!.gradle/
+gradle/wrapper/gradle-wrapper.jar
+
+# Android build outputs
+*/build/
+
+# Exclude the gradle wrapper temp files but keep the jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Don't ignore the wrapper jar file
+!gradle/wrapper/gradle-wrapper.jar
+
+# Gradle-specific cache files to ignore
+.gradle/**/fileHashes/
+.gradle/**/fileContent/
+.gradle/**/executionHistory/
+.gradle/**/testkit/
+.gradle/**/workers/
+.gradle/**/buildOutputCleanup/
+.gradle/**/vcsMetadata/
+.gradle/**/projectAccessors/
+.gradle/**/javaCompile/
+.gradle/**/kotlin/
+.gradle/**/resources/
+.gradle/**/dependency-management/
+.gradle/**/copy/
+.gradle/**/transform/
+.gradle/**/incremental/
+.gradle/**/minification/
+.gradle/**/mergeClasses/
+.gradle/**/processResources/
+.gradle/**/bundle/
+.gradle/**/package/
+.gradle/**/signArchives/
+.gradle/**/signatures/
+.gradle/**/validation/
+.gradle/**/reports/
+.gradle/**/tmp/
+.gradle/**/native/
+.gradle/**/prefab/
+.gradle/**/configuration-cache/
+.gradle/**/cleanup/
+.gradle/**/baseline/
+.gradle/**/profile/
+
+# Additional build artifacts
+.file-lock
+.gradle-wrapper.properties.lock
+
+# Gradle JVM Toolchains
+gradle/jvm-toolchains.gradle

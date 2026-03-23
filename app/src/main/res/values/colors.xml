@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material Design 3 Color Palette -->
+    <!-- Primary colors -->
+    <color name="primary_50">#EADDFF</color>
+    <color name="primary_100">#D0BCFF</color>
+    <color name="primary_200">#B69DF8</color>
+    <color name="primary_300">#9A82DB</color>
+    <color name="primary_400">#836BD1</color>
+    <color name="primary_500">#6F56DA</color>
+    <color name="primary_600">#5D42C9</color>
+    <color name="primary_700">#4D2BBA</color>
+    <color name="primary_800">#3F18AB</color>
+    <color name="primary_900">#3A109D</color>
+
+    <!-- Secondary colors -->
+    <color name="secondary_50">#F8F3FF</color>
+    <color name="secondary_100">#E6DCFA</color>
+    <color name="secondary_200">#D9C8F2</color>
+    <color name="secondary_300">#C9B0E8</color>
+    <color name="secondary_400">#B99ADA</color>
+    <color name="secondary_500">#A883CC</color>
+    <color name="secondary_600">#956EC0</color>
+    <color name="secondary_700">#8259B4</color>
+    <color name="secondary_800">#6F44A8</color>
+    <color name="secondary_900">#5B2F9C</color>
+
+    <!-- Tertiary colors -->
+    <color name="tertiary_50">#EFFFFA</color>
+    <color name="tertiary_100">#D1FFE5</color>
+    <color name="tertiary_200">#B5F0CE</color>
+    <color name="tertiary_300">#9AD1B7</color>
+    <color name="tertiary_400">#80B4A1</color>
+    <color name="tertiary_500">#679689</color>
+    <color name="tertiary_600">#507A71</color>
+    <color name="tertiary_700">#395F59</color>
+    <color name="tertiary_800">#224542</color>
+    <color name="tertiary_900">#0F2D2B</color>
+
+    <!-- Surface and background colors -->
+    <color name="surface">#FFFBFE</color>
+    <color name="surface_variant">#E7E0EC</color>
+    <color name="background">#FFFBFE</color>
+    <color name="error">#BA1A1A</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="on_secondary">#FFFFFF</color>
+    <color name="on_tertiary">#FFFFFF</color>
+    <color name="on_surface">#211A1D</color>
+    <color name="on_surface_variant">#49454F</color>
+    <color name="outline">#79747E</color>
+
+    <!-- Legacy colors (kept for compatibility) -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
