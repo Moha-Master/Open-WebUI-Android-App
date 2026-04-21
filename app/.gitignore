@@ -1,1 +1,10 @@
+/.gradle
 /build
+/captures
+*.apk
+*.ap_
+*.aab
+
+# Generated launcher icons (WebP) if created locally
+res/mipmap-*/ic_launcher*.webp
+res/mipmap-*/ic_launcher_round*.webp
