@@ -16,7 +16,8 @@ object NetworkUtils {
 
     data class NetworkState(
         val type: NetworkType,
-        val wifiSsid: String? = null
+        val wifiSsid: String? = null,
+        val isVpn: Boolean = false
     )
 
     fun isNetworkAvailable(context: Context): Boolean {
@@ -30,27 +31,36 @@ object NetworkUtils {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val network = connectivityManager.activeNetwork ?: return NetworkState(NetworkType.OFFLINE)
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return NetworkState(NetworkType.OFFLINE)
+        val isVpn = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
 
         if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
             val ssid = getCurrentWifiSsid(context, capabilities)
-            return NetworkState(NetworkType.WIFI, ssid)
+            return NetworkState(NetworkType.WIFI, ssid, isVpn)
         }
 
         if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
-            return NetworkState(NetworkType.MOBILE)
+            return NetworkState(NetworkType.MOBILE, isVpn = isVpn)
         }
 
-        return NetworkState(NetworkType.OTHER)
+        return NetworkState(NetworkType.OTHER, isVpn = isVpn)
     }
 
     private fun getCurrentWifiSsid(context: Context, capabilities: NetworkCapabilities): String? {
-        val transportInfo = capabilities.transportInfo
-        if (transportInfo is WifiInfo) {
-            return sanitizeSsid(transportInfo.ssid)
+        try {
+            val transportInfo = capabilities.transportInfo
+            if (transportInfo is WifiInfo) {
+                return sanitizeSsid(transportInfo.ssid)
+            }
+        } catch (_: SecurityException) {
         }
 
-        val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        return sanitizeSsid(wifiManager?.connectionInfo?.ssid)
+        try {
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            return sanitizeSsid(wifiManager?.connectionInfo?.ssid)
+        } catch (_: SecurityException) {
+        }
+
+        return null
     }
 
     private fun sanitizeSsid(rawSsid: String?): String? {
