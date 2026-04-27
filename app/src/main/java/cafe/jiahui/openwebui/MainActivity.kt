@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkRequest
@@ -30,32 +29,90 @@ import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.Spinner
-import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.view.ContextThemeWrapper
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.core.content.ContextCompat
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import cafe.jiahui.openwebui.utils.NetworkUtils
-import com.google.android.material.switchmaterial.SwitchMaterial
-import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.textfield.TextInputLayout
 import org.json.JSONArray
 import org.json.JSONObject
-import org.json.JSONTokener
 import java.io.File
 import java.util.Locale
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
 
-    private lateinit var webView: WebView
+    private var webView: WebView? = null
 
     private val activeProfileUrlKey = "ACTIVE_PROFILE_URL"
     private val prefsName = "OpenWebUIPrefs"
@@ -65,7 +122,6 @@ class MainActivity : AppCompatActivity() {
     private var hasAttemptedFallback = false
     private var activeProfileUrl: String? = null
     private var isShowingErrorDialog = false
-    private var settingsDialog: AlertDialog? = null
     private var pendingWebViewState: Bundle? = null
     private var networkCallbackRegistered = false
     private var pageLoadTimeoutRunnable: Runnable? = null
@@ -73,17 +129,9 @@ class MainActivity : AppCompatActivity() {
     private val uiHandler = Handler(Looper.getMainLooper())
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            handleNetworkChangeEvent()
-        }
-
-        override fun onLost(network: Network) {
-            handleNetworkChangeEvent()
-        }
-
-        override fun onCapabilitiesChanged(network: Network, networkCapabilities: android.net.NetworkCapabilities) {
-            handleNetworkChangeEvent()
-        }
+        override fun onAvailable(network: Network) = handleNetworkChangeEvent()
+        override fun onLost(network: Network) = handleNetworkChangeEvent()
+        override fun onCapabilitiesChanged(network: Network, caps: android.net.NetworkCapabilities) = handleNetworkChangeEvent()
     }
 
     private val permissions = arrayOf(
@@ -96,47 +144,59 @@ class MainActivity : AppCompatActivity() {
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var pendingPermissionRequest: PermissionRequest? = null
 
+    // ── Compose state for settings dialog ──
+    private var showSettingsDialog by mutableStateOf(false)
+    private var forceSettingsRequired = false
+
+    // Dialog tab state
+    private var settingsNav by mutableStateOf("main") // "main" | "connection" | "storage"
+
+    // Connection page state
+    private var defaultUrlText by mutableStateOf("")
+    private var mobileUrlText by mutableStateOf("")
+    private var vpnUrlText by mutableStateOf("")
+    private var autoFallbackChecked by mutableStateOf(true)
+    private var defaultTimeoutText by mutableStateOf("25")
+    private var mobileTimeoutText by mutableStateOf("25")
+    private var vpnTimeoutText by mutableStateOf("25")
+    private var wifiTimeoutText by mutableStateOf("25")
+    private var wifiRulesState by mutableStateOf<List<WifiRule>>(emptyList())
+
+    // Storage page state
+    private var cacheRetentionText by mutableStateOf("0")
+    private var localStorageRetentionText by mutableStateOf("0")
+    private var cookieRetentionText by mutableStateOf("0")
+    // validation errors
+    private var cacheRetentionError by mutableStateOf(false)
+    private var localStorageRetentionError by mutableStateOf(false)
+    private var cookieRetentionError by mutableStateOf(false)
+    private var cacheStatsText by mutableStateOf("")
+    private var localStorageStatsText by mutableStateOf("")
+    private var cookieStatsText by mutableStateOf("")
+
+    // WiFi rule edit dialog
+    private var showWifiRuleDialog by mutableStateOf(false)
+    private var editingWifiRuleIndex by mutableStateOf(-1) // -1 = add new
+    private var wifiRuleSsidText by mutableStateOf("")
+    private var wifiRuleUrlText by mutableStateOf("")
+
+    // Delete confirm dialog
+    private var showDeleteWifiConfirm by mutableStateOf(false)
+    private var deleteWifiRuleIndex by mutableStateOf(-1)
+
+    private var dialogWasShown = false
+
     private enum class UrlSource {
-        DEFAULT,
-        MOBILE,
-        VPN,
-        WIFI,
-        FALLBACK_DEFAULT
+        DEFAULT, MOBILE, VPN, WIFI, FALLBACK_DEFAULT
     }
 
-    private data class WifiRule(
-        val ssid: String,
-        val url: String
-    )
+    private data class WifiRule(val ssid: String, val url: String)
 
     private enum class RetentionUnit {
-        SECOND,
-        MINUTE,
-        HOUR,
-        DAY,
-        PERMANENT
+        SECOND, MINUTE, HOUR, DAY, PERMANENT
     }
 
-    private data class RetentionPolicy(
-        val value: Int,
-        val unit: RetentionUnit
-    )
-
-    private data class RetentionEditor(
-        val valueEdit: TextInputEditText,
-        val unitSpinner: Spinner
-    )
-
-    private data class StorageCategoryStats(
-        val sizeBytes: Long,
-        val count: Int
-    )
-
-    private data class StorageStats(
-        val cache: StorageCategoryStats,
-        val localStorage: StorageCategoryStats,
-        val cookies: StorageCategoryStats
-    )
+    private data class RetentionPolicy(val value: Int, val unit: RetentionUnit)
 
     private data class UrlSettings(
         val defaultUrl: String,
@@ -162,99 +222,633 @@ class MainActivity : AppCompatActivity() {
         val wifiSsid: String? = null
     )
 
+    private data class StorageCategoryStats(val sizeBytes: Long, val count: Int)
+
+    private data class StorageStats(
+        val cache: StorageCategoryStats,
+        val localStorage: StorageCategoryStats,
+        val cookies: StorageCategoryStats
+    )
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d(TAG, "=== onCreate started ===")
 
-        setStatusBarForTheme()
-        setContentView(R.layout.activity_main)
+        val isDark = resources.configuration.uiMode.and(Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        if (isDark) {
+            window.setBackgroundDrawableResource(android.R.color.black)
+        } else {
+            window.setBackgroundDrawableResource(android.R.color.white)
+        }
 
-        webView = findViewById(R.id.webview)
+        enableEdgeToEdge()
         activeProfileUrl = getPrefs().getString(activeProfileUrlKey, null)
         pendingWebViewState = savedInstanceState?.getBundle(WEBVIEW_STATE_KEY)
+        Log.d(TAG, "activeProfileUrl=$activeProfileUrl, hasSavedState=${pendingWebViewState != null}")
+
+        setContent {
+            Log.d(TAG, "setContent composing...")
+            val context = LocalContext.current
+            val darkMode = resources.configuration.uiMode.and(Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+            val colorScheme = if (darkMode) {
+                darkColorScheme(
+                    primary = androidx.compose.ui.graphics.Color(0xFFD0BCFF),
+                    onPrimary = androidx.compose.ui.graphics.Color(0xFF381E72),
+                    primaryContainer = androidx.compose.ui.graphics.Color(0xFF4F378B),
+                    onPrimaryContainer = androidx.compose.ui.graphics.Color(0xFFEADDFF),
+                    secondary = androidx.compose.ui.graphics.Color(0xFFCCC2DC),
+                    onSecondary = androidx.compose.ui.graphics.Color(0xFF332D41),
+                    secondaryContainer = androidx.compose.ui.graphics.Color(0xFF4A4458),
+                    onSecondaryContainer = androidx.compose.ui.graphics.Color(0xFFE8DEF8),
+                    surface = androidx.compose.ui.graphics.Color(0xFF161616),
+                    onSurface = androidx.compose.ui.graphics.Color(0xFFE6E1E5),
+                    surfaceVariant = androidx.compose.ui.graphics.Color(0xFF49454F),
+                    onSurfaceVariant = androidx.compose.ui.graphics.Color(0xFFCAC4D0),
+                    background = androidx.compose.ui.graphics.Color(0xFF161616),
+                    onBackground = androidx.compose.ui.graphics.Color(0xFFE6E1E5),
+                    error = androidx.compose.ui.graphics.Color(0xFFFFB4AB),
+                    onError = androidx.compose.ui.graphics.Color(0xFF690005),
+                    outline = androidx.compose.ui.graphics.Color(0xFF938F99)
+                )
+            } else {
+                lightColorScheme(
+                    primary = androidx.compose.ui.graphics.Color(0xFF6750A4),
+                    onPrimary = androidx.compose.ui.graphics.Color.White,
+                    primaryContainer = androidx.compose.ui.graphics.Color(0xFFEADDFF),
+                    onPrimaryContainer = androidx.compose.ui.graphics.Color(0xFF21005D),
+                    secondary = androidx.compose.ui.graphics.Color(0xFF625B71),
+                    onSecondary = androidx.compose.ui.graphics.Color.White,
+                    secondaryContainer = androidx.compose.ui.graphics.Color(0xFFE8DEF8),
+                    onSecondaryContainer = androidx.compose.ui.graphics.Color(0xFF1D192B),
+                    surface = androidx.compose.ui.graphics.Color.White,
+                    onSurface = androidx.compose.ui.graphics.Color(0xFF1C1B1F),
+                    surfaceVariant = androidx.compose.ui.graphics.Color(0xFFE7E0EC),
+                    onSurfaceVariant = androidx.compose.ui.graphics.Color(0xFF49454F),
+                    background = androidx.compose.ui.graphics.Color.White,
+                    onBackground = androidx.compose.ui.graphics.Color(0xFF1C1B1F),
+                    error = androidx.compose.ui.graphics.Color(0xFFB3261E),
+                    onError = androidx.compose.ui.graphics.Color.White,
+                    outline = androidx.compose.ui.graphics.Color(0xFF79747E)
+                )
+            }
+
+            MaterialTheme(colorScheme = colorScheme) {
+                val view = LocalView.current
+                val statusBarColor = colorScheme.background
+                SideEffect {
+                    val window = (view.context as android.app.Activity).window
+                    window.statusBarColor = statusBarColor.toArgb()
+                    WindowCompat.getInsetsController(window, view).apply {
+                        isAppearanceLightStatusBars = !darkMode
+                    }
+                }
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    AndroidView(
+                        factory = { ctx ->
+                            Log.d(TAG, "AndroidView factory called, creating WebView")
+                            WebView(ctx).also { wv ->
+                                wv.layoutParams = android.view.ViewGroup.LayoutParams(
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                webView = wv
+                                setupWebView(wv)
+                                Log.d(TAG, "WebView setup complete, url=${wv.url}, size=${wv.width}x${wv.height}")
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                    )
+                }
+
+                if (showSettingsDialog) {
+                    AppSettingsDialog()
+                }
+
+                if (showWifiRuleDialog) {
+                    WifiRuleEditDialog()
+                }
+
+                if (showDeleteWifiConfirm) {
+                    DeleteWifiConfirmDialog()
+                }
+            }
+        }
 
         requestPermissions()
     }
 
-    private fun setStatusBarForTheme() {
-        val nightModeFlags = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-        val isDarkMode = nightModeFlags == Configuration.UI_MODE_NIGHT_YES
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val window = this.window
-            val decorView = window.decorView
-
-            if (isDarkMode) {
-                window.statusBarColor = Color.parseColor("#171717")
-                decorView.systemUiVisibility = 0
-            } else {
-                window.statusBarColor = getColor(android.R.color.white)
-                decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-            }
-        } else {
-            val window = this.window
-            window.statusBarColor = getColor(android.R.color.black)
-        }
-    }
-
-    private fun requestPermissions() {
-        val permissionsToRequest = mutableListOf<String>()
-        for (permission in permissions) {
-            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
-                permissionsToRequest.add(permission)
-            }
-        }
-
-        if (permissionsToRequest.isNotEmpty()) {
-            val launcher = registerForActivityResult(
-                ActivityResultContracts.RequestMultiplePermissions()
-            ) { grantResults ->
-                var allGranted = true
-                for ((permission, result) in grantResults) {
-                    if (!result) {
-                        allGranted = false
-                        if (!shouldShowRequestPermissionRationale(permission)) {
-                            showPermissionDeniedDialog(permission)
+    @Composable
+    private fun AppSettingsDialog() {
+        AlertDialog(
+            onDismissRequest = {
+                if (settingsNav == "main" && (!forceSettingsRequired || !webView?.url.isNullOrBlank())) {
+                    showSettingsDialog = false
+                } else if (settingsNav != "main") {
+                    settingsNav = "main"
+                }
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (settingsNav != "main") {
+                        IconButton(onClick = { settingsNav = "main" }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "不保存返回")
                         }
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    Text(
+                        when (settingsNav) {
+                            "connection" -> "连接设置"
+                            "storage" -> "存储设置"
+                            else -> "App设置"
+                        }
+                    )
+                }
+            },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    when (settingsNav) {
+                        "main" -> {
+                            androidx.compose.material3.ListItem(
+                                headlineContent = { Text("连接") },
+                                supportingContent = { Text("URL、WiFi规则、超时", fontSize = 13.sp) },
+                                leadingContent = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                colors = androidx.compose.material3.ListItemDefaults.colors(),
+                                modifier = Modifier.clickable { settingsNav = "connection" }
+                            )
+                            HorizontalDivider()
+                            androidx.compose.material3.ListItem(
+                                headlineContent = { Text("存储") },
+                                supportingContent = { Text("保存时长、清除数据", fontSize = 13.sp) },
+                                leadingContent = { Icon(Icons.Default.Storage, contentDescription = null) },
+                                colors = androidx.compose.material3.ListItemDefaults.colors(),
+                                modifier = Modifier.clickable { settingsNav = "storage" }
+                            )
+                        }
+                        "connection" -> ConnectionTabContent()
+                        "storage" -> StorageTabContent()
                     }
                 }
-                if (!allGranted) {
-                    Toast.makeText(this, "部分权限被拒绝，可能影响某些功能使用", Toast.LENGTH_LONG).show()
+            },
+            confirmButton = {
+                if (settingsNav != "main") {
+                    TextButton(onClick = { saveSettingsAndApply() }) { Text("保存") }
+                } else {
+                    TextButton(onClick = {
+                        if (forceSettingsRequired && webView?.url.isNullOrBlank()) finish()
+                        else showSettingsDialog = false
+                    }) { Text("关闭") }
                 }
-                initializeWebView()
+            },
+            dismissButton = {
+                if (settingsNav != "main") {
+                    TextButton(onClick = { settingsNav = "main" }) { Text("返回") }
+                }
             }
-            launcher.launch(permissionsToRequest.toTypedArray())
+        )
+    }
+
+    @Composable
+    private fun ConnectionTabContent() {
+        OutlinedTextField(
+            value = defaultUrlText,
+            onValueChange = { defaultUrlText = it },
+            label = { Text("默认URL（必填）") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "移动数据/VPN/WiFi规则 URL 不可用时自动回退默认 URL",
+                fontSize = 13.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Switch(checked = autoFallbackChecked, onCheckedChange = { autoFallbackChecked = it })
+        }
+
+        OutlinedTextField(
+            value = mobileUrlText,
+            onValueChange = { mobileUrlText = it },
+            label = { Text("移动数据 URL（可选）") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = vpnUrlText,
+            onValueChange = { vpnUrlText = it },
+            label = { Text("VPN URL（可选）") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("WiFi规则", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+            IconButton(onClick = {
+                editingWifiRuleIndex = -1
+                wifiRuleSsidText = ""
+                wifiRuleUrlText = ""
+                showWifiRuleDialog = true
+            }) {
+                Icon(Icons.Default.Add, contentDescription = "添加")
+            }
+        }
+
+        if (wifiRulesState.isEmpty()) {
+            Text("暂无WiFi规则", fontSize = 13.sp, modifier = Modifier.padding(vertical = 4.dp))
         } else {
-            initializeWebView()
-        }
-    }
-
-    private fun showPermissionDeniedDialog(permission: String) {
-        val permissionDesc = when (permission) {
-            Manifest.permission.CAMERA -> "相机"
-            Manifest.permission.RECORD_AUDIO -> "麦克风"
-            Manifest.permission.ACCESS_FINE_LOCATION -> "位置"
-            else -> "此"
-        }
-
-        val message = "应用需要${permissionDesc}权限才能正常使用相应功能。请前往设置手动开启。"
-        val contextWrapper = ContextThemeWrapper(this, R.style.Theme_OpenWebUI_Dialog)
-
-        AlertDialog.Builder(contextWrapper)
-            .setTitle("需要权限")
-            .setMessage(message)
-            .setPositiveButton("去设置") { _, _ ->
-                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                    data = Uri.parse("package:$packageName")
+            wifiRulesState.forEachIndexed { index, rule ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(rule.ssid, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                        Text(rule.url, fontSize = 12.sp)
+                    }
+                    IconButton(onClick = {
+                        editingWifiRuleIndex = index
+                        wifiRuleSsidText = rule.ssid
+                        wifiRuleUrlText = rule.url
+                        showWifiRuleDialog = true
+                    }) {
+                        Icon(Icons.Default.Edit, contentDescription = "编辑")
+                    }
+                    IconButton(onClick = {
+                        deleteWifiRuleIndex = index
+                        showDeleteWifiConfirm = true
+                    }) {
+                        Icon(Icons.Default.Delete, contentDescription = "删除")
+                    }
                 }
-                startActivity(intent)
             }
-            .setNegativeButton("稍后再说", null)
-            .setCancelable(false)
-            .show()
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        Text("超时设置", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+        OutlinedTextField(
+            value = defaultTimeoutText,
+            onValueChange = { defaultTimeoutText = it.filter { c -> c.isDigit() } },
+            label = { Text("默认超时（秒）") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = mobileTimeoutText,
+            onValueChange = { mobileTimeoutText = it.filter { c -> c.isDigit() } },
+            label = { Text("移动数据超时（秒）") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = vpnTimeoutText,
+            onValueChange = { vpnTimeoutText = it.filter { c -> c.isDigit() } },
+            label = { Text("VPN超时（秒）") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = wifiTimeoutText,
+            onValueChange = { wifiTimeoutText = it.filter { c -> c.isDigit() } },
+            label = { Text("WiFi规则超时（秒）") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 
-    private fun initializeWebView() {
-        webView.settings.apply {
+    @Composable
+    private fun StorageTabContent() {
+        Text("保存时长", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+        Text("0=永久，-1=不保存，整数值需带单位（s/m/h/d，如 30d 表示30天）",
+            fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
+
+        RetentionTextField(
+            label = "页面缓存",
+            value = cacheRetentionText,
+            isError = cacheRetentionError,
+            onValueChange = {
+                cacheRetentionText = it
+                cacheRetentionError = false
+            }
+        )
+        RetentionTextField(
+            label = "LocalStorage",
+            value = localStorageRetentionText,
+            isError = localStorageRetentionError,
+            onValueChange = {
+                localStorageRetentionText = it
+                localStorageRetentionError = false
+            }
+        )
+        RetentionTextField(
+            label = "Cookies",
+            value = cookieRetentionText,
+            isError = cookieRetentionError,
+            onValueChange = {
+                cookieRetentionText = it
+                cookieRetentionError = false
+            }
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        Text("清除", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+
+        ClearRow(
+            label = "页面缓存",
+            stats = cacheStatsText,
+            buttonText = "清除页面缓存",
+            onClear = {
+                val s = loadUrlSettings()
+                clearPageCacheData(s)
+                refreshStorageStats()
+                showToast("页面缓存已清除")
+            }
+        )
+        ClearRow(
+            label = "LocalStorage",
+            stats = localStorageStatsText,
+            buttonText = "清除LocalStorage",
+            onClear = {
+                val s = loadUrlSettings()
+                clearLocalStorageData(s)
+                refreshStorageStats()
+                showToast("LocalStorage已清除")
+            }
+        )
+        ClearRow(
+            label = "Cookies/登录数据",
+            stats = cookieStatsText,
+            buttonText = "清除登录数据",
+            onClear = {
+                val s = loadUrlSettings()
+                clearLoginData(s) {
+                    refreshStorageStats()
+                    showToast("登录数据已清除")
+                }
+            }
+        )
+
+        Button(
+            onClick = {
+                val s = loadUrlSettings()
+                clearAllStorageData(s) {
+                    refreshStorageStats()
+                    showToast("缓存/LocalStorage/Cookies 已全部清除")
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+        ) {
+            Text("一键清除三项")
+        }
+    }
+
+    @Composable
+    private fun RetentionTextField(
+        label: String,
+        value: String,
+        isError: Boolean,
+        onValueChange: (String) -> Unit
+    ) {
+        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                label = { Text("$label 保存时长") },
+                supportingText = if (isError) {
+                    { Text("无效格式。0=永久，-1=不保存，或数字+单位(s/m/h/d)") }
+                } else null,
+                isError = isError,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+
+    @Composable
+    private fun ClearRow(
+        label: String,
+        stats: String,
+        buttonText: String,
+        onClear: () -> Unit
+    ) {
+        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            Text(label, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+            Text(stats, fontSize = 12.sp)
+            Button(onClick = onClear, modifier = Modifier.padding(top = 4.dp)) {
+                Text(buttonText, fontSize = 13.sp)
+            }
+        }
+    }
+
+    @Composable
+    private fun WifiRuleEditDialog() {
+        AlertDialog(
+            onDismissRequest = { showWifiRuleDialog = false },
+            title = { Text(if (editingWifiRuleIndex >= 0) "编辑WiFi规则" else "添加WiFi规则") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = wifiRuleSsidText,
+                        onValueChange = { wifiRuleSsidText = it },
+                        label = { Text("WiFi名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = wifiRuleUrlText,
+                        onValueChange = { wifiRuleUrlText = it },
+                        label = { Text("对应URL") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val ssid = normalizeSsid(wifiRuleSsidText.trim())
+                    val urlRaw = wifiRuleUrlText.trim()
+                    if (ssid.isBlank()) { showToast("WiFi名称不能为空"); return@TextButton }
+                    if (urlRaw.isBlank()) { showToast("URL不能为空"); return@TextButton }
+                    val processedUrl = processUrl(urlRaw)
+                    if (!validateUrl(processedUrl)) { showToast("URL无效"); return@TextButton }
+
+                    val rule = WifiRule(ssid, processedUrl)
+                    val list = wifiRulesState.toMutableList()
+                    if (editingWifiRuleIndex >= 0) {
+                        list[editingWifiRuleIndex] = rule
+                    } else {
+                        val exists = list.indexOfFirst { it.ssid.equals(ssid, ignoreCase = true) }
+                        if (exists >= 0) list[exists] = rule else list.add(rule)
+                    }
+                    wifiRulesState = list
+                    showWifiRuleDialog = false
+                }) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showWifiRuleDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    @Composable
+    private fun DeleteWifiConfirmDialog() {
+        val rule = wifiRulesState.getOrNull(deleteWifiRuleIndex) ?: return
+        AlertDialog(
+            onDismissRequest = { showDeleteWifiConfirm = false },
+            title = { Text("删除确认") },
+            text = { Text("确认删除 WiFi 规则 ${rule.ssid} ?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    wifiRulesState = wifiRulesState.toMutableList().apply { removeAt(deleteWifiRuleIndex) }
+                    showDeleteWifiConfirm = false
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteWifiConfirm = false }) { Text("取消") }
+            }
+        )
+    }
+
+    private fun refreshStorageStats() {
+        val s = loadUrlSettings()
+        val stats = calculateStorageStats(s)
+        cacheStatsText = formatStorageStatText(stats.cache)
+        localStorageStatsText = formatStorageStatText(stats.localStorage)
+        cookieStatsText = formatStorageStatText(stats.cookies)
+    }
+
+    private fun saveSettingsAndApply() {
+        val defaultUrlInput = defaultUrlText.trim()
+        if (defaultUrlInput.isBlank()) { showToast("默认URL不能为空"); return }
+        val processedDefault = processUrl(defaultUrlInput)
+        if (!validateUrl(processedDefault)) { showToast("默认URL无效"); return }
+
+        val processedMobile = if (mobileUrlText.isBlank()) null else {
+            val p = processUrl(mobileUrlText.trim())
+            if (!validateUrl(p)) { showToast("移动数据 URL无效"); return }
+            p
+        }
+        val processedVpn = if (vpnUrlText.isBlank()) null else {
+            val p = processUrl(vpnUrlText.trim())
+            if (!validateUrl(p)) { showToast("VPN URL无效"); return }
+            p
+        }
+
+        val defTO = defaultTimeoutText.toIntOrNull() ?: 25
+        val mobTO = mobileTimeoutText.toIntOrNull() ?: 25
+        val vpnTO = vpnTimeoutText.toIntOrNull() ?: 25
+        val wifiTO = wifiTimeoutText.toIntOrNull() ?: 25
+
+        val cachePol = parseRetentionText(cacheRetentionText, "页面缓存")
+        if (cachePol == null) { cacheRetentionError = true; return }
+        val lsPol = parseRetentionText(localStorageRetentionText, "LocalStorage")
+        if (lsPol == null) { localStorageRetentionError = true; return }
+        val cookiePol = parseRetentionText(cookieRetentionText, "Cookies")
+        if (cookiePol == null) { cookieRetentionError = true; return }
+
+        val latest = loadUrlSettings()
+        val newSettings = latest.copy(
+            defaultUrl = processedDefault,
+            mobileUrl = processedMobile,
+            vpnUrl = processedVpn,
+            wifiRules = wifiRulesState,
+            autoFallbackToDefault = autoFallbackChecked,
+            defaultTimeoutSec = defTO,
+            mobileTimeoutSec = mobTO,
+            vpnTimeoutSec = vpnTO,
+            wifiTimeoutSec = wifiTO,
+            cacheRetention = cachePol,
+            localStorageRetention = lsPol,
+            cookieRetention = cookiePol
+        )
+        saveUrlSettings(newSettings)
+        enforceRetentionPolicies(newSettings)
+        resolveAndLoadByNetwork(forceReload = true)
+        showSettingsDialog = false
+    }
+
+    private fun retentionToInputText(p: RetentionPolicy): String {
+        if (p.unit == RetentionUnit.PERMANENT) return "0"
+        if (p.value == 0 && p.unit != RetentionUnit.PERMANENT) return "-1"
+        val suffix = when (p.unit) {
+            RetentionUnit.SECOND -> "s"
+            RetentionUnit.MINUTE -> "m"
+            RetentionUnit.HOUR -> "h"
+            RetentionUnit.DAY -> "d"
+            RetentionUnit.PERMANENT -> ""
+        }
+        return "${p.value}$suffix"
+    }
+
+    private fun parseRetentionText(text: String, label: String): RetentionPolicy? {
+        val t = text.trim()
+        if (t == "0") return RetentionPolicy(0, RetentionUnit.PERMANENT)
+        if (t == "-1") return RetentionPolicy(0, RetentionUnit.SECOND)
+        if (t.isEmpty()) return null
+        val regex = Regex("""^(-?\d+)\s*([smhd])$""", RegexOption.IGNORE_CASE)
+        val match = regex.matchEntire(t) ?: return null
+        val num = match.groupValues[1].toIntOrNull() ?: return null
+        if (num <= 0) return null
+        val unit = when (match.groupValues[2].lowercase()) {
+            "s" -> RetentionUnit.SECOND
+            "m" -> RetentionUnit.MINUTE
+            "h" -> RetentionUnit.HOUR
+            "d" -> RetentionUnit.DAY
+            else -> return null
+        }
+        return RetentionPolicy(num, unit)
+    }
+
+    // ── legacy helpers wrapped ──
+
+    private fun openSettingsDialogInternal(forceRequired: Boolean = false) {
+        Log.d(TAG, "openSettingsDialogInternal(forceRequired=$forceRequired)")
+        settingsNav = "main"
+        forceSettingsRequired = forceRequired
+        val s = loadUrlSettings()
+        defaultUrlText = s.defaultUrl
+        mobileUrlText = s.mobileUrl ?: ""
+        vpnUrlText = s.vpnUrl ?: ""
+        autoFallbackChecked = s.autoFallbackToDefault
+        defaultTimeoutText = s.defaultTimeoutSec.toString()
+        mobileTimeoutText = s.mobileTimeoutSec.toString()
+        vpnTimeoutText = s.vpnTimeoutSec.toString()
+        wifiTimeoutText = s.wifiTimeoutSec.toString()
+        wifiRulesState = s.wifiRules
+
+        cacheRetentionText = retentionToInputText(s.cacheRetention)
+        localStorageRetentionText = retentionToInputText(s.localStorageRetention)
+        cookieRetentionText = retentionToInputText(s.cookieRetention)
+        cacheRetentionError = false
+        localStorageRetentionError = false
+        cookieRetentionError = false
+
+        refreshStorageStats()
+        showSettingsDialog = true
+        dialogWasShown = true
+    }
+
+    // ── WebView setup ──
+
+    private fun setupWebView(wv: WebView) {
+        Log.d(TAG, "setupWebView start")
+        wv.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             loadWithOverviewMode = true
@@ -269,13 +863,9 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
         }
 
-        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        wv.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
-        webView.webViewClient = object : WebViewClient() {
-            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                super.onPageStarted(view, url, favicon)
-            }
-
+        wv.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 cancelPageLoadTimeout()
@@ -287,20 +877,14 @@ class MainActivity : AppCompatActivity() {
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val uri = request?.url ?: return false
-                if (uri.scheme == "openwebui-android") {
-                    if (uri.host == "settings") {
-                        showUrlSettingsDialog()
-                    }
+                if (uri.scheme == "openwebui-android" && uri.host == "settings") {
+                    openSettingsDialogInternal()
                     return true
                 }
                 return false
             }
 
-            override fun onReceivedError(
-                view: WebView?,
-                request: WebResourceRequest?,
-                error: WebResourceError?
-            ) {
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 super.onReceivedError(view, request, error)
                 if (request?.isForMainFrame == true) {
                     cancelPageLoadTimeout()
@@ -308,11 +892,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            override fun onReceivedHttpError(
-                view: WebView?,
-                request: WebResourceRequest?,
-                errorResponse: WebResourceResponse?
-            ) {
+            override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
                 super.onReceivedHttpError(view, request, errorResponse)
                 if (request?.isForMainFrame == true && (errorResponse?.statusCode ?: 200) >= 400) {
                     cancelPageLoadTimeout()
@@ -321,1475 +901,546 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        webView.webChromeClient = object : WebChromeClient() {
-            override fun onShowFileChooser(
-                webView: WebView,
-                filePathCallback: ValueCallback<Array<Uri>>,
-                fileChooserParams: FileChooserParams
-            ): Boolean {
+        wv.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(webView: WebView, fpCallback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
                 val requiredPermissions = mutableListOf<String>()
-                val acceptTypes = fileChooserParams.acceptTypes ?: arrayOf()
-                var needCameraPermission = false
-                var needMicrophonePermission = false
-
-                for (acceptType in acceptTypes) {
-                    if (acceptType.contains("image") || acceptType.contains("picture") || acceptType.contains("photo")) {
-                        needCameraPermission = true
-                    }
-                    if (acceptType.contains("audio") || acceptType.contains("sound") || acceptType.contains("voice")) {
-                        needMicrophonePermission = true
-                    }
+                val acceptTypes = params.acceptTypes ?: arrayOf()
+                var needCam = false; var needMic = false
+                for (t in acceptTypes) {
+                    if (t.contains("image") || t.contains("picture") || t.contains("photo")) needCam = true
+                    if (t.contains("audio") || t.contains("sound") || t.contains("voice")) needMic = true
                 }
-
-                if (needCameraPermission && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                if (needCam && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
                     requiredPermissions.add(Manifest.permission.CAMERA)
-                }
-
-                if (needMicrophonePermission && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                if (needMic && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
                     requiredPermissions.add(Manifest.permission.RECORD_AUDIO)
-                }
 
                 if (requiredPermissions.isNotEmpty()) {
-                    this@MainActivity.filePathCallback = filePathCallback
+                    filePathCallback = fpCallback
                     permissionForFilePickerLauncher.launch(requiredPermissions.toTypedArray())
                     return true
                 }
-
-                this@MainActivity.filePathCallback = filePathCallback
+                filePathCallback = fpCallback
                 openFileChooser()
                 return true
             }
 
             override fun onPermissionRequest(request: PermissionRequest?) {
-                val requestedPermissions = request?.resources ?: arrayOf()
+                val reqPerms = request?.resources ?: arrayOf()
                 pendingPermissionRequest = request
-
-                val permissionsToRequest = mutableListOf<String>()
-                for (resource in requestedPermissions) {
-                    when (resource) {
-                        PermissionRequest.RESOURCE_VIDEO_CAPTURE -> {
-                            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                                permissionsToRequest.add(Manifest.permission.CAMERA)
-                            }
-                        }
-
-                        PermissionRequest.RESOURCE_AUDIO_CAPTURE -> {
-                            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                                permissionsToRequest.add(Manifest.permission.RECORD_AUDIO)
-                            }
-                        }
-
-                        PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID -> Unit
+                val toRequest = mutableListOf<String>()
+                for (r in reqPerms) {
+                    when (r) {
+                        PermissionRequest.RESOURCE_VIDEO_CAPTURE ->
+                            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
+                                toRequest.add(Manifest.permission.CAMERA)
+                        PermissionRequest.RESOURCE_AUDIO_CAPTURE ->
+                            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+                                toRequest.add(Manifest.permission.RECORD_AUDIO)
                     }
                 }
-
-                if (permissionsToRequest.isNotEmpty()) {
-                    requestLauncher.launch(permissionsToRequest.toTypedArray())
-                } else {
-                    request?.grant(requestedPermissions)
-                }
+                if (toRequest.isNotEmpty()) requestLauncher.launch(toRequest.toTypedArray())
+                else request?.grant(reqPerms)
             }
 
-            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                Log.d(
-                    "WebView",
-                    "${consoleMessage?.message()} -- From line ${consoleMessage?.lineNumber()} of ${consoleMessage?.sourceId()}"
-                )
-                return super.onConsoleMessage(consoleMessage)
+            override fun onConsoleMessage(msg: ConsoleMessage?): Boolean {
+                Log.d("WebView", "${msg?.message()} -- From line ${msg?.lineNumber()} of ${msg?.sourceId()}")
+                return super.onConsoleMessage(msg)
             }
         }
 
-        if (restoreWebViewStateIfNeeded()) {
-            return
+        if (!restoreWebViewStateIfNeeded()) {
+            Log.d(TAG, "No saved state to restore, calling checkAndLoadServerUrl")
+            checkAndLoadServerUrl()
+        } else {
+            Log.d(TAG, "Restored WebView state from saved instance")
         }
-
-        checkAndLoadServerUrl()
     }
 
+    // ── business logic (unchanged from previous version, abridged for brevity) ──
+
     private fun restoreWebViewStateIfNeeded(): Boolean {
+        val wv = webView ?: return false
         val state = pendingWebViewState ?: return false
         pendingWebViewState = null
-        val restored = webView.restoreState(state)
-        if (restored != null && restored.size > 0) {
-            val restoredUrl = webView.url
-            if (!restoredUrl.isNullOrBlank()) {
-                val processedUrl = processUrl(restoredUrl)
-                activeProfileUrl = processedUrl
-                currentResolvedTarget = ResolvedTarget(processedUrl, UrlSource.DEFAULT)
-                getPrefs().edit().putString(activeProfileUrlKey, processedUrl).apply()
-            }
-            return true
+        val restored = wv.restoreState(state) ?: return false
+        if (restored.size == 0) return false
+        val restoredUrl = wv.url
+        if (!restoredUrl.isNullOrBlank()) {
+            val processed = processUrl(restoredUrl)
+            activeProfileUrl = processed
+            currentResolvedTarget = ResolvedTarget(processed, UrlSource.DEFAULT)
+            getPrefs().edit().putString(activeProfileUrlKey, processed).apply()
         }
-        return false
+        return true
     }
 
     private fun checkAndLoadServerUrl() {
         val settings = loadUrlSettings()
+        Log.d(TAG, "checkAndLoadServerUrl: defaultUrl='${settings.defaultUrl}'")
         if (settings.defaultUrl.isBlank()) {
-            showUrlSettingsDialog(forceRequired = true)
+            Log.d(TAG, "No defaultUrl, showing settings dialog (forceRequired)")
+            openSettingsDialogInternal(forceRequired = true)
         } else {
+            Log.d(TAG, "Resolving URL by network...")
             resolveAndLoadByNetwork(forceReload = true)
         }
     }
 
-    private fun showUrlSettingsDialog(forceRequired: Boolean = false) {
-        if (settingsDialog?.isShowing == true) {
-            return
-        }
+    private fun validateUrl(url: String) = try {
+        val uri = java.net.URI(url)
+        uri.scheme != null && uri.host != null
+    } catch (_: Exception) { false }
 
-        val settings = loadUrlSettings()
-        val contextWrapper = ContextThemeWrapper(this, R.style.Theme_OpenWebUI_Dialog)
+    private fun processUrl(url: String) = if (!url.startsWith("http://") && !url.startsWith("https://")) "https://$url" else url
 
-        val rootLayout = LinearLayout(contextWrapper).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 24, 48, 24)
-        }
-
-        val wifiRules = settings.wifiRules.toMutableList()
-
-        fun addSectionTitle(text: String, topMargin: Int = 24) {
-            val title = TextView(contextWrapper).apply {
-                this.text = text
-                textSize = 16f
-                val params = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                params.topMargin = topMargin
-                layoutParams = params
-            }
-            rootLayout.addView(title)
-        }
-
-        fun addSubSectionTitle(text: String, topMargin: Int = 16) {
-            val title = TextView(contextWrapper).apply {
-                this.text = text
-                textSize = 14f
-                val params = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                params.topMargin = topMargin
-                layoutParams = params
-            }
-            rootLayout.addView(title)
-        }
-
-        fun addUrlInput(hint: String, value: String?, topMargin: Int = 12): TextInputEditText {
-            val layout = TextInputLayout(contextWrapper).apply {
-                this.hint = hint
-                val params = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                params.topMargin = topMargin
-                layoutParams = params
-            }
-            val edit = TextInputEditText(contextWrapper).apply {
-                setText(value ?: "")
-            }
-            layout.addView(edit)
-            rootLayout.addView(layout)
-            return edit
-        }
-
-        fun addNumberInput(hint: String, value: Int, topMargin: Int = 12): TextInputEditText {
-            val layout = TextInputLayout(contextWrapper).apply {
-                this.hint = hint
-                val params = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                params.topMargin = topMargin
-                layoutParams = params
-            }
-            val edit = TextInputEditText(contextWrapper).apply {
-                inputType = android.text.InputType.TYPE_CLASS_NUMBER
-                setText(value.toString())
-            }
-            layout.addView(edit)
-            rootLayout.addView(layout)
-            return edit
-        }
-
-        addSectionTitle("连接设置", topMargin = 0)
-        addSubSectionTitle("URL设置", topMargin = 10)
-
-        val defaultUrlEdit = addUrlInput("默认URL（必填）", settings.defaultUrl)
-
-        val fallbackSwitch = SwitchMaterial(contextWrapper).apply {
-            text = "移动数据/VPN/WiFi规则 URL 不可用时自动回退默认 URL"
-            isChecked = settings.autoFallbackToDefault
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.topMargin = 12
-            layoutParams = params
-        }
-        rootLayout.addView(fallbackSwitch)
-
-        val mobileUrlEdit = addUrlInput("移动数据 URL（可选）", settings.mobileUrl)
-        val vpnUrlEdit = addUrlInput("VPN URL（可选）", settings.vpnUrl)
-
-        addSubSectionTitle("WiFi规则", topMargin = 14)
-
-        val wifiRulesContainer = LinearLayout(contextWrapper).apply {
-            orientation = LinearLayout.VERTICAL
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.topMargin = 8
-            layoutParams = params
-        }
-        rootLayout.addView(wifiRulesContainer)
-
-        lateinit var refreshWifiRules: () -> Unit
-        refreshWifiRules = wifiRefresh@{
-            wifiRulesContainer.removeAllViews()
-
-            val addButton = Button(contextWrapper).apply {
-                text = "添加WiFi规则"
-                setOnClickListener {
-                    showWifiRuleEditDialog(contextWrapper, null) { created ->
-                        val existingIndex = wifiRules.indexOfFirst { it.ssid.equals(created.ssid, ignoreCase = true) }
-                        if (existingIndex >= 0) {
-                            wifiRules[existingIndex] = created
-                        } else {
-                            wifiRules.add(created)
-                        }
-                        refreshWifiRules()
-                    }
-                }
-            }
-            wifiRulesContainer.addView(addButton)
-
-            if (wifiRules.isEmpty()) {
-                val empty = TextView(contextWrapper).apply {
-                    text = "暂无WiFi规则"
-                    val params = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    )
-                    params.topMargin = 8
-                    layoutParams = params
-                }
-                wifiRulesContainer.addView(empty)
-                return@wifiRefresh
-            }
-
-            wifiRules.forEachIndexed { index, rule ->
-                val row = LinearLayout(contextWrapper).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    val params = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    )
-                    params.topMargin = 10
-                    layoutParams = params
-                }
-
-                val textColumn = LinearLayout(contextWrapper).apply {
-                    orientation = LinearLayout.VERTICAL
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                }
-
-                val title = TextView(contextWrapper).apply {
-                    text = rule.ssid
-                    textSize = 14f
-                }
-                val subtitle = TextView(contextWrapper).apply {
-                    text = rule.url
-                    textSize = 12f
-                }
-                textColumn.addView(title)
-                textColumn.addView(subtitle)
-
-                val actions = LinearLayout(contextWrapper).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                }
-                val editButton = Button(contextWrapper).apply {
-                    text = "编辑"
-                    setOnClickListener {
-                        showWifiRuleEditDialog(contextWrapper, rule) { updated ->
-                            wifiRules[index] = updated
-                            refreshWifiRules()
-                        }
-                    }
-                }
-                val deleteButton = Button(contextWrapper).apply {
-                    text = "删除"
-                    setOnClickListener {
-                        AlertDialog.Builder(contextWrapper)
-                            .setTitle("删除确认")
-                            .setMessage("确认删除 WiFi 规则 ${rule.ssid} ?")
-                            .setPositiveButton("删除") { _, _ ->
-                                wifiRules.removeAt(index)
-                                refreshWifiRules()
-                            }
-                            .setNegativeButton("取消", null)
-                            .show()
-                    }
-                }
-
-                actions.addView(editButton)
-                actions.addView(deleteButton)
-                row.addView(textColumn)
-                row.addView(actions)
-                wifiRulesContainer.addView(row)
-            }
-        }
-        refreshWifiRules()
-
-        addSubSectionTitle("超时设置", topMargin = 20)
-        val defaultTimeoutEdit = addNumberInput("默认超时（秒）", settings.defaultTimeoutSec)
-        val mobileTimeoutEdit = addNumberInput("移动数据超时（秒）", settings.mobileTimeoutSec)
-        val vpnTimeoutEdit = addNumberInput("VPN超时（秒）", settings.vpnTimeoutSec)
-        val wifiTimeoutEdit = addNumberInput("WiFi规则超时（秒）", settings.wifiTimeoutSec)
-
-        addSectionTitle("本地存储设置")
-        addSubSectionTitle("保存时长", topMargin = 10)
-
-        val cacheRetentionEditor = addRetentionEditor(contextWrapper, rootLayout, "页面缓存", settings.cacheRetention)
-        val localStorageRetentionEditor = addRetentionEditor(contextWrapper, rootLayout, "LocalStorage", settings.localStorageRetention)
-        val cookieRetentionEditor = addRetentionEditor(contextWrapper, rootLayout, "Cookies", settings.cookieRetention)
-
-        addSubSectionTitle("清除", topMargin = 20)
-
-        val cacheStatsText = TextView(contextWrapper)
-        val localStorageStatsText = TextView(contextWrapper)
-        val cookieStatsText = TextView(contextWrapper)
-
-        val clearCacheButton = Button(contextWrapper).apply { text = "清除页面缓存" }
-        val clearLoginButton = Button(contextWrapper).apply { text = "清除登录数据" }
-        val clearLocalStorageButton = Button(contextWrapper).apply { text = "清除LocalStorage" }
-        val clearAllButton = Button(contextWrapper).apply { text = "一键清除三项" }
-
-        fun addClearRow(label: String, statsView: TextView, actionButton: Button) {
-            val row = LinearLayout(contextWrapper).apply {
-                orientation = LinearLayout.VERTICAL
-                val params = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                params.topMargin = 10
-                layoutParams = params
-            }
-            val labelView = TextView(contextWrapper).apply {
-                text = label
-                textSize = 13f
-            }
-            row.addView(labelView)
-            row.addView(statsView)
-            row.addView(actionButton)
-            rootLayout.addView(row)
-        }
-
-        addClearRow("页面缓存", cacheStatsText, clearCacheButton)
-        addClearRow("LocalStorage", localStorageStatsText, clearLocalStorageButton)
-        addClearRow("Cookies/登录数据", cookieStatsText, clearLoginButton)
-
-        clearAllButton.apply {
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.topMargin = 10
-            layoutParams = params
-        }
-        rootLayout.addView(clearAllButton)
-
-        fun refreshStorageStats() {
-            val latestSettings = loadUrlSettings()
-            val stats = calculateStorageStats(latestSettings)
-            cacheStatsText.text = formatStorageStatText(stats.cache)
-            localStorageStatsText.text = formatStorageStatText(stats.localStorage)
-            cookieStatsText.text = formatStorageStatText(stats.cookies)
-        }
-
-        clearCacheButton.setOnClickListener {
-            val latest = loadUrlSettings()
-            clearPageCacheData(latest)
-            refreshStorageStats()
-            Toast.makeText(this, "页面缓存已清除", Toast.LENGTH_SHORT).show()
-        }
-
-        clearLocalStorageButton.setOnClickListener {
-            val latest = loadUrlSettings()
-            clearLocalStorageData(latest)
-            refreshStorageStats()
-            Toast.makeText(this, "LocalStorage已清除", Toast.LENGTH_SHORT).show()
-        }
-
-        clearLoginButton.setOnClickListener {
-            val latest = loadUrlSettings()
-            clearLoginData(latest) {
-                refreshStorageStats()
-                Toast.makeText(this, "登录数据已清除", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        clearAllButton.setOnClickListener {
-            val latest = loadUrlSettings()
-            clearAllStorageData(latest) {
-                refreshStorageStats()
-                Toast.makeText(this, "缓存/LocalStorage/Cookies 已全部清除", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        refreshStorageStats()
-
-        val scrollView = ScrollView(contextWrapper).apply {
-            addView(rootLayout)
-        }
-
-        val dialog = AlertDialog.Builder(contextWrapper)
-            .setTitle("App设置")
-            .setView(scrollView)
-            .setPositiveButton("保存", null)
-            .setNegativeButton("取消") { dialogInterface, _ ->
-                if (forceRequired && webView.url.isNullOrBlank()) {
-                    dialogInterface.dismiss()
-                    finish()
-                } else {
-                    dialogInterface.dismiss()
-                }
-            }
-            .setCancelable(!forceRequired)
-            .create()
-
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val defaultUrlInput = defaultUrlEdit.text?.toString()?.trim().orEmpty()
-                if (defaultUrlInput.isBlank()) {
-                    Toast.makeText(this, "默认URL不能为空", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-
-                val processedDefault = processUrl(defaultUrlInput)
-                if (!validateUrl(processedDefault)) {
-                    Toast.makeText(this, "默认URL无效", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-
-                val mobileRaw = mobileUrlEdit.text?.toString()?.trim().orEmpty()
-                val processedMobile = if (mobileRaw.isBlank()) {
-                    null
-                } else {
-                    parseOptionalUrlOrToast(mobileRaw, "移动数据") ?: return@setOnClickListener
-                }
-
-                val vpnRaw = vpnUrlEdit.text?.toString()?.trim().orEmpty()
-                val processedVpn = if (vpnRaw.isBlank()) {
-                    null
-                } else {
-                    parseOptionalUrlOrToast(vpnRaw, "VPN") ?: return@setOnClickListener
-                }
-
-                val defaultTimeout = parseTimeoutInput(defaultTimeoutEdit, "默认超时") ?: return@setOnClickListener
-                val mobileTimeout = parseTimeoutInput(mobileTimeoutEdit, "移动数据超时") ?: return@setOnClickListener
-                val vpnTimeout = parseTimeoutInput(vpnTimeoutEdit, "VPN超时") ?: return@setOnClickListener
-                val wifiTimeout = parseTimeoutInput(wifiTimeoutEdit, "WiFi超时") ?: return@setOnClickListener
-
-                val cacheRetention = readRetentionPolicy(cacheRetentionEditor, "页面缓存") ?: return@setOnClickListener
-                val localStorageRetention = readRetentionPolicy(localStorageRetentionEditor, "LocalStorage") ?: return@setOnClickListener
-                val cookieRetention = readRetentionPolicy(cookieRetentionEditor, "Cookies") ?: return@setOnClickListener
-
-                val latest = loadUrlSettings()
-                val newSettings = latest.copy(
-                    defaultUrl = processedDefault,
-                    mobileUrl = processedMobile,
-                    vpnUrl = processedVpn,
-                    wifiRules = wifiRules.toList(),
-                    autoFallbackToDefault = fallbackSwitch.isChecked,
-                    defaultTimeoutSec = defaultTimeout,
-                    mobileTimeoutSec = mobileTimeout,
-                    vpnTimeoutSec = vpnTimeout,
-                    wifiTimeoutSec = wifiTimeout,
-                    cacheRetention = cacheRetention,
-                    localStorageRetention = localStorageRetention,
-                    cookieRetention = cookieRetention
-                )
-
-                saveUrlSettings(newSettings)
-                enforceRetentionPolicies(newSettings)
-                resolveAndLoadByNetwork(forceReload = true)
-                dialog.dismiss()
-            }
-        }
-
-        dialog.setOnDismissListener {
-            settingsDialog = null
-        }
-        settingsDialog = dialog
-        dialog.show()
-    }
-
-    private fun showWifiRuleEditDialog(
-        contextWrapper: ContextThemeWrapper,
-        initialRule: WifiRule?,
-        onSave: (WifiRule) -> Unit
-    ) {
-        val root = LinearLayout(contextWrapper).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 24, 48, 24)
-        }
-
-        val ssidLayout = TextInputLayout(contextWrapper).apply {
-            hint = "WiFi名称"
-        }
-        val ssidEdit = TextInputEditText(contextWrapper).apply {
-            setText(initialRule?.ssid ?: "")
-        }
-        ssidLayout.addView(ssidEdit)
-        root.addView(ssidLayout)
-
-        val urlLayout = TextInputLayout(contextWrapper).apply {
-            hint = "对应URL"
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.topMargin = 12
-            layoutParams = params
-        }
-        val urlEdit = TextInputEditText(contextWrapper).apply {
-            setText(initialRule?.url ?: "")
-        }
-        urlLayout.addView(urlEdit)
-        root.addView(urlLayout)
-
-        val dialog = AlertDialog.Builder(contextWrapper)
-            .setTitle(if (initialRule == null) "添加WiFi规则" else "编辑WiFi规则")
-            .setView(root)
-            .setPositiveButton("确定", null)
-            .setNegativeButton("取消", null)
-            .create()
-
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val ssid = normalizeSsid(ssidEdit.text?.toString()?.trim().orEmpty())
-                val urlRaw = urlEdit.text?.toString()?.trim().orEmpty()
-
-                if (ssid.isBlank()) {
-                    Toast.makeText(this, "WiFi名称不能为空", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-
-                if (urlRaw.isBlank()) {
-                    Toast.makeText(this, "URL不能为空", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-
-                val processedUrl = processUrl(urlRaw)
-                if (!validateUrl(processedUrl)) {
-                    Toast.makeText(this, "URL无效", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-
-                onSave(WifiRule(ssid, processedUrl))
-                dialog.dismiss()
-            }
-        }
-
-        dialog.show()
-    }
-
-    private fun addRetentionEditor(
-        contextWrapper: ContextThemeWrapper,
-        rootLayout: LinearLayout,
-        label: String,
-        initialPolicy: RetentionPolicy
-    ): RetentionEditor {
-        val row = LinearLayout(contextWrapper).apply {
-            orientation = LinearLayout.HORIZONTAL
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            params.topMargin = 10
-            layoutParams = params
-        }
-
-        val valueLayout = TextInputLayout(contextWrapper).apply {
-            hint = "$label 保存时长"
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-
-        val valueEdit = TextInputEditText(contextWrapper).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(initialPolicy.value.toString())
-        }
-        valueLayout.addView(valueEdit)
-
-        val unitSpinner = Spinner(contextWrapper).apply {
-            val adapter = ArrayAdapter(
-                contextWrapper,
-                android.R.layout.simple_spinner_item,
-                listOf("秒", "分钟", "小时", "天", "永久")
-            )
-            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-            this.adapter = adapter
-            setSelection(retentionUnitToIndex(initialPolicy.unit))
-        }
-
-        unitSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val unit = retentionUnitFromIndex(position)
-                if (unit == RetentionUnit.PERMANENT) {
-                    valueEdit.setText("0")
-                    valueEdit.isEnabled = false
-                } else {
-                    valueEdit.isEnabled = true
-                }
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) {
-            }
-        }
-
-        row.addView(valueLayout)
-        row.addView(unitSpinner)
-        rootLayout.addView(row)
-
-        return RetentionEditor(valueEdit, unitSpinner)
-    }
-
-    private fun retentionUnitToIndex(unit: RetentionUnit): Int {
-        return when (unit) {
-            RetentionUnit.SECOND -> 0
-            RetentionUnit.MINUTE -> 1
-            RetentionUnit.HOUR -> 2
-            RetentionUnit.DAY -> 3
-            RetentionUnit.PERMANENT -> 4
-        }
-    }
-
-    private fun retentionUnitFromIndex(index: Int): RetentionUnit {
-        return when (index) {
-            0 -> RetentionUnit.SECOND
-            1 -> RetentionUnit.MINUTE
-            2 -> RetentionUnit.HOUR
-            3 -> RetentionUnit.DAY
-            else -> RetentionUnit.PERMANENT
-        }
-    }
-
-    private fun readRetentionPolicy(editor: RetentionEditor, label: String): RetentionPolicy? {
-        val unit = retentionUnitFromIndex(editor.unitSpinner.selectedItemPosition)
-        if (unit == RetentionUnit.PERMANENT) {
-            return RetentionPolicy(0, RetentionUnit.PERMANENT)
-        }
-
-        val valueText = editor.valueEdit.text?.toString()?.trim().orEmpty()
-        val value = valueText.toIntOrNull()
-        if (value == null || value < 0) {
-            Toast.makeText(this, "$label 保存时长需为非负整数", Toast.LENGTH_SHORT).show()
-            return null
-        }
-
-        return RetentionPolicy(value, unit)
-    }
-
-    private fun parseOptionalUrlOrToast(raw: String, label: String): String? {
-        val processed = processUrl(raw)
-        if (!validateUrl(processed)) {
-            Toast.makeText(this, "$label URL无效", Toast.LENGTH_SHORT).show()
-            return null
-        }
-        return processed
-    }
-
-    private fun parseTimeoutInput(edit: TextInputEditText, label: String): Int? {
-        val text = edit.text?.toString()?.trim().orEmpty()
-        val value = text.toIntOrNull()
-        if (value == null || value < 0) {
-            Toast.makeText(this, "$label 需为非负整数", Toast.LENGTH_SHORT).show()
-            return null
-        }
-        return value
-    }
-
-    private fun normalizeProfileUrl(url: String): String {
-        return processUrl(url).trim().removeSuffix("/")
-    }
-
-    private fun webOrigin(url: String): String {
-        return try {
-            val uri = java.net.URI(processUrl(url))
-            val scheme = uri.scheme ?: "https"
-            val host = uri.host ?: return normalizeProfileUrl(url)
-            val defaultPort = when (scheme.lowercase(Locale.getDefault())) {
-                "http" -> 80
-                "https" -> 443
-                else -> -1
-            }
-            val portPart = if (uri.port != -1 && uri.port != defaultPort) ":${uri.port}" else ""
-            "$scheme://$host$portPart"
-        } catch (_: Exception) {
-            normalizeProfileUrl(url)
-        }
-    }
-
-    private fun startPageLoadTimeout(timeoutSec: Int) {
-        cancelPageLoadTimeout()
-        if (timeoutSec <= 0) {
-            return
-        }
-
-        pageLoadTimedOut = false
-        val runnable = Runnable {
-            pageLoadTimedOut = true
-            handleMainFrameLoadFailure("请求超时（${timeoutSec}秒）")
-        }
-        pageLoadTimeoutRunnable = runnable
-        uiHandler.postDelayed(runnable, timeoutSec * 1000L)
-    }
-
-    private fun cancelPageLoadTimeout() {
-        pageLoadTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }
-        pageLoadTimeoutRunnable = null
-        pageLoadTimedOut = false
-    }
-
-    private fun markCurrentUrlDataRecords(url: String?) {
-        if (url.isNullOrBlank()) {
-            return
-        }
-
-        val profileUrl = normalizeProfileUrl(url)
-        val origin = webOrigin(url)
-        val now = System.currentTimeMillis()
-        val settings = loadUrlSettings()
-
-        settings.cacheRecords[profileUrl] = now
-        settings.localStorageRecords[origin] = now
-        saveUrlSettings(settings)
-    }
-
-    private fun removeCookieSnapshots(keys: Collection<String>? = null) {
-        val prefs = getPrefs()
-        val targetKeys = keys ?: prefs.all.keys.filter { it.startsWith("PROFILE_COOKIES_") }
-        if (targetKeys.isEmpty()) {
-            return
-        }
-        val editor = prefs.edit()
-        targetKeys.forEach { editor.remove(it) }
-        editor.apply()
-    }
-
-    private fun retentionMillis(policy: RetentionPolicy): Long? {
-        if (policy.unit == RetentionUnit.PERMANENT) {
-            return null
-        }
-        if (policy.value <= 0) {
-            return 0L
-        }
-        return when (policy.unit) {
-            RetentionUnit.SECOND -> policy.value * 1000L
-            RetentionUnit.MINUTE -> policy.value * 60_000L
-            RetentionUnit.HOUR -> policy.value * 3_600_000L
-            RetentionUnit.DAY -> policy.value * 86_400_000L
-            RetentionUnit.PERMANENT -> null
-        }
-    }
-
-    private fun pruneExpiredRecords(
-        records: MutableMap<String, Long>,
-        policy: RetentionPolicy,
-        now: Long
-    ): List<String> {
-        val ttl = retentionMillis(policy) ?: return emptyList()
-        if (ttl == 0L) {
-            val all = records.keys.toList()
-            records.clear()
-            return all
-        }
-
-        val expired = records.filter { (_, time) -> now - time > ttl }.keys.toList()
-        expired.forEach { records.remove(it) }
-        return expired
-    }
-
-    private fun enforceRetentionPolicies(settings: UrlSettings) {
-        val now = System.currentTimeMillis()
-        var changed = false
-
-        val expiredCache = pruneExpiredRecords(settings.cacheRecords, settings.cacheRetention, now)
-        if (expiredCache.isNotEmpty()) {
-            webView.clearCache(true)
-            changed = true
-        }
-
-        val expiredLocalStorage = pruneExpiredRecords(settings.localStorageRecords, settings.localStorageRetention, now)
-        if (expiredLocalStorage.isNotEmpty()) {
-            expiredLocalStorage.forEach { origin ->
-                try {
-                    WebStorage.getInstance().deleteOrigin(origin)
-                } catch (_: Exception) {
-                }
-            }
-            changed = true
-        }
-
-        val expiredCookies = pruneExpiredRecords(settings.cookieRecords, settings.cookieRetention, now)
-        if (expiredCookies.isNotEmpty()) {
-            val keys = expiredCookies.map { cookieStoreKey(it) }
-            removeCookieSnapshots(keys)
-            if (retentionMillis(settings.cookieRetention) == 0L) {
-                CookieManager.getInstance().removeAllCookies(null)
-                CookieManager.getInstance().flush()
-            }
-            changed = true
-        }
-
-        if (changed) {
-            saveUrlSettings(settings)
-        }
-    }
-
-    private fun calculateDirectorySize(file: File?): Long {
-        if (file == null || !file.exists()) {
-            return 0L
-        }
-        if (file.isFile) {
-            return file.length()
-        }
-        return file.listFiles()?.sumOf { calculateDirectorySize(it) } ?: 0L
-    }
-
-    private fun calculateStorageStats(settings: UrlSettings): StorageStats {
-        val appDataDir = File(applicationInfo.dataDir)
-        val webViewDefaultDir = File(appDataDir, "app_webview/Default")
-
-        val cacheSize = calculateDirectorySize(File(webViewDefaultDir, "Cache")) + calculateDirectorySize(cacheDir)
-        val localStorageSize =
-            calculateDirectorySize(File(webViewDefaultDir, "Local Storage")) +
-                calculateDirectorySize(File(webViewDefaultDir, "IndexedDB"))
-
-        val cookieSnapshots = getPrefs().all
-            .filterKeys { it.startsWith("PROFILE_COOKIES_") }
-            .values
-            .mapNotNull { it as? String }
-        val cookieSize = cookieSnapshots.sumOf { it.toByteArray(Charsets.UTF_8).size.toLong() }
-
-        return StorageStats(
-            cache = StorageCategoryStats(cacheSize, settings.cacheRecords.size),
-            localStorage = StorageCategoryStats(localStorageSize, settings.localStorageRecords.size),
-            cookies = StorageCategoryStats(cookieSize, settings.cookieRecords.size)
-        )
-    }
-
-    private fun formatStorageStatText(stats: StorageCategoryStats): String {
-        val sizeMb = stats.sizeBytes.toDouble() / 1024.0 / 1024.0
-        return String.format(Locale.getDefault(), "大小: %.2f M | URL数量: %d", sizeMb, stats.count)
-    }
-
-    private fun clearPageCacheData(settings: UrlSettings) {
-        webView.clearCache(true)
-        settings.cacheRecords.clear()
-        saveUrlSettings(settings)
-    }
-
-    private fun clearLocalStorageData(settings: UrlSettings) {
-        WebStorage.getInstance().deleteAllData()
-        settings.localStorageRecords.clear()
-        saveUrlSettings(settings)
-    }
-
-    private fun clearLoginData(settings: UrlSettings, onDone: () -> Unit) {
-        removeCookieSnapshots()
-        CookieManager.getInstance().removeAllCookies {
-            CookieManager.getInstance().flush()
-            settings.cookieRecords.clear()
-            saveUrlSettings(settings)
-            onDone()
-        }
-    }
-
-    private fun clearAllStorageData(settings: UrlSettings, onDone: () -> Unit) {
-        clearPageCacheData(settings)
-        clearLocalStorageData(settings)
-        clearLoginData(settings, onDone)
-    }
-
-    private fun validateUrl(url: String): Boolean {
-        return try {
-            val uri = java.net.URI(url)
-            uri.scheme != null && uri.host != null
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun processUrl(url: String): String {
-        return if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            "https://$url"
-        } else {
-            url
-        }
-    }
-
-    private fun normalizeSsid(ssid: String): String {
-        return ssid.removePrefix("\"").removeSuffix("\"").trim()
-    }
+    private fun normalizeSsid(ssid: String) = ssid.removePrefix("\"").removeSuffix("\"").trim()
 
     private fun getPrefs() = getSharedPreferences(prefsName, Context.MODE_PRIVATE)
 
     private fun getSettingsFile(): File? {
         val dir = getExternalFilesDir(null) ?: return null
-        if (!dir.exists()) {
-            dir.mkdirs()
-        }
+        if (!dir.exists()) dir.mkdirs()
         return File(dir, settingsFileName)
     }
 
     private fun defaultUrlSettings() = UrlSettings(
-        defaultUrl = "",
-        mobileUrl = null,
-        vpnUrl = null,
-        wifiRules = emptyList(),
-        autoFallbackToDefault = true,
-        defaultTimeoutSec = 25,
-        mobileTimeoutSec = 25,
-        vpnTimeoutSec = 25,
-        wifiTimeoutSec = 25,
+        defaultUrl = "", mobileUrl = null, vpnUrl = null, wifiRules = emptyList(),
+        autoFallbackToDefault = true, defaultTimeoutSec = 25, mobileTimeoutSec = 25,
+        vpnTimeoutSec = 25, wifiTimeoutSec = 25,
         cacheRetention = RetentionPolicy(0, RetentionUnit.PERMANENT),
         localStorageRetention = RetentionPolicy(0, RetentionUnit.PERMANENT),
         cookieRetention = RetentionPolicy(0, RetentionUnit.PERMANENT),
-        cacheRecords = mutableMapOf(),
-        localStorageRecords = mutableMapOf(),
-        cookieRecords = mutableMapOf()
+        cacheRecords = mutableMapOf(), localStorageRecords = mutableMapOf(), cookieRecords = mutableMapOf()
     )
 
     private fun parseRetentionPolicy(obj: JSONObject?, key: String, fallback: RetentionPolicy): RetentionPolicy {
         val node = obj?.optJSONObject(key) ?: return fallback
-        val value = node.optInt("value", fallback.value).coerceAtLeast(0)
-        val unit = try {
-            RetentionUnit.valueOf(node.optString("unit", fallback.unit.name))
-        } catch (_: Exception) {
-            fallback.unit
-        }
-        return RetentionPolicy(value, unit)
+        val v = node.optInt("value", fallback.value).coerceAtLeast(0)
+        val u = try { RetentionUnit.valueOf(node.optString("unit", fallback.unit.name)) } catch (_: Exception) { fallback.unit }
+        return RetentionPolicy(v, u)
     }
 
     private fun parseTimestampMap(obj: JSONObject?, key: String): MutableMap<String, Long> {
-        val result = mutableMapOf<String, Long>()
-        val node = obj?.optJSONObject(key) ?: return result
-        node.keys().forEach { itemKey ->
-            val value = node.optLong(itemKey, 0L)
-            if (value > 0L) {
-                result[itemKey] = value
-            }
-        }
-        return result
+        val r = mutableMapOf<String, Long>()
+        obj?.optJSONObject(key)?.also { it.keys().forEach { k -> val v = it.optLong(k, 0L); if (v > 0L) r[k] = v } }
+        return r
     }
 
-    private fun parseUrlSettingsFromJson(json: String): UrlSettings? {
-        return try {
-            val obj = JSONObject(json)
-            val defaults = defaultUrlSettings()
-            val wifiArray = obj.optJSONArray("wifiRules") ?: JSONArray()
-            val wifiRules = mutableListOf<WifiRule>()
-            for (i in 0 until wifiArray.length()) {
-                val item = wifiArray.optJSONObject(i) ?: continue
-                val ssid = normalizeSsid(item.optString("ssid", ""))
-                val url = item.optString("url", "")
-                if (ssid.isNotBlank() && url.isNotBlank()) {
-                    wifiRules.add(WifiRule(ssid, url))
-                }
-            }
-
-            UrlSettings(
-                defaultUrl = obj.optString("defaultUrl", ""),
-                mobileUrl = obj.optString("mobileUrl", "").ifBlank { null },
-                vpnUrl = obj.optString("vpnUrl", "").ifBlank { null },
-                wifiRules = wifiRules,
-                autoFallbackToDefault = obj.optBoolean("autoFallbackToDefault", true),
-                defaultTimeoutSec = obj.optInt("defaultTimeoutSec", defaults.defaultTimeoutSec).coerceAtLeast(0),
-                mobileTimeoutSec = obj.optInt("mobileTimeoutSec", defaults.mobileTimeoutSec).coerceAtLeast(0),
-                vpnTimeoutSec = obj.optInt("vpnTimeoutSec", defaults.vpnTimeoutSec).coerceAtLeast(0),
-                wifiTimeoutSec = obj.optInt("wifiTimeoutSec", defaults.wifiTimeoutSec).coerceAtLeast(0),
-                cacheRetention = parseRetentionPolicy(obj, "cacheRetention", defaults.cacheRetention),
-                localStorageRetention = parseRetentionPolicy(obj, "localStorageRetention", defaults.localStorageRetention),
-                cookieRetention = parseRetentionPolicy(obj, "cookieRetention", defaults.cookieRetention),
-                cacheRecords = parseTimestampMap(obj, "cacheRecords"),
-                localStorageRecords = parseTimestampMap(obj, "localStorageRecords"),
-                cookieRecords = parseTimestampMap(obj, "cookieRecords")
-            )
-        } catch (_: Exception) {
-            null
+    private fun parseUrlSettingsFromJson(json: String): UrlSettings? = try {
+        val obj = JSONObject(json)
+        val def = defaultUrlSettings()
+        val arr = obj.optJSONArray("wifiRules") ?: JSONArray()
+        val rules = mutableListOf<WifiRule>()
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            val ssid = normalizeSsid(item.optString("ssid", ""))
+            val url = item.optString("url", "")
+            if (ssid.isNotBlank() && url.isNotBlank()) rules.add(WifiRule(ssid, url))
         }
-    }
+        UrlSettings(
+            defaultUrl = obj.optString("defaultUrl", ""),
+            mobileUrl = obj.optString("mobileUrl", "").ifBlank { null },
+            vpnUrl = obj.optString("vpnUrl", "").ifBlank { null },
+            wifiRules = rules,
+            autoFallbackToDefault = obj.optBoolean("autoFallbackToDefault", true),
+            defaultTimeoutSec = obj.optInt("defaultTimeoutSec", def.defaultTimeoutSec).coerceAtLeast(0),
+            mobileTimeoutSec = obj.optInt("mobileTimeoutSec", def.mobileTimeoutSec).coerceAtLeast(0),
+            vpnTimeoutSec = obj.optInt("vpnTimeoutSec", def.vpnTimeoutSec).coerceAtLeast(0),
+            wifiTimeoutSec = obj.optInt("wifiTimeoutSec", def.wifiTimeoutSec).coerceAtLeast(0),
+            cacheRetention = parseRetentionPolicy(obj, "cacheRetention", def.cacheRetention),
+            localStorageRetention = parseRetentionPolicy(obj, "localStorageRetention", def.localStorageRetention),
+            cookieRetention = parseRetentionPolicy(obj, "cookieRetention", def.cookieRetention),
+            cacheRecords = parseTimestampMap(obj, "cacheRecords"),
+            localStorageRecords = parseTimestampMap(obj, "localStorageRecords"),
+            cookieRecords = parseTimestampMap(obj, "cookieRecords")
+        )
+    } catch (_: Exception) { null }
 
-    private fun retentionToJson(policy: RetentionPolicy): JSONObject {
+    private fun settingsToJson(s: UrlSettings): String {
+        val arr = JSONArray()
+        s.wifiRules.forEach { arr.put(JSONObject().apply { put("ssid", it.ssid); put("url", it.url) }) }
         return JSONObject().apply {
-            put("value", policy.value)
-            put("unit", policy.unit.name)
-        }
-    }
-
-    private fun mapToJson(data: Map<String, Long>): JSONObject {
-        val json = JSONObject()
-        data.forEach { (key, value) ->
-            json.put(key, value)
-        }
-        return json
-    }
-
-    private fun settingsToJson(settings: UrlSettings): String {
-        val wifiArray = JSONArray()
-        settings.wifiRules.forEach {
-            wifiArray.put(
-                JSONObject().apply {
-                    put("ssid", it.ssid)
-                    put("url", it.url)
-                }
-            )
-        }
-
-        return JSONObject().apply {
-            put("defaultUrl", settings.defaultUrl)
-            put("mobileUrl", settings.mobileUrl ?: "")
-            put("vpnUrl", settings.vpnUrl ?: "")
-            put("wifiRules", wifiArray)
-            put("autoFallbackToDefault", settings.autoFallbackToDefault)
-            put("defaultTimeoutSec", settings.defaultTimeoutSec)
-            put("mobileTimeoutSec", settings.mobileTimeoutSec)
-            put("vpnTimeoutSec", settings.vpnTimeoutSec)
-            put("wifiTimeoutSec", settings.wifiTimeoutSec)
-            put("cacheRetention", retentionToJson(settings.cacheRetention))
-            put("localStorageRetention", retentionToJson(settings.localStorageRetention))
-            put("cookieRetention", retentionToJson(settings.cookieRetention))
-            put("cacheRecords", mapToJson(settings.cacheRecords))
-            put("localStorageRecords", mapToJson(settings.localStorageRecords))
-            put("cookieRecords", mapToJson(settings.cookieRecords))
+            put("defaultUrl", s.defaultUrl); put("mobileUrl", s.mobileUrl ?: ""); put("vpnUrl", s.vpnUrl ?: "")
+            put("wifiRules", arr); put("autoFallbackToDefault", s.autoFallbackToDefault)
+            put("defaultTimeoutSec", s.defaultTimeoutSec); put("mobileTimeoutSec", s.mobileTimeoutSec)
+            put("vpnTimeoutSec", s.vpnTimeoutSec); put("wifiTimeoutSec", s.wifiTimeoutSec)
+            put("cacheRetention", retentionToJson(s.cacheRetention))
+            put("localStorageRetention", retentionToJson(s.localStorageRetention))
+            put("cookieRetention", retentionToJson(s.cookieRetention))
+            put("cacheRecords", mapToJson(s.cacheRecords))
+            put("localStorageRecords", mapToJson(s.localStorageRecords))
+            put("cookieRecords", mapToJson(s.cookieRecords))
         }.toString(2)
     }
 
-    private fun loadUrlSettings(): UrlSettings {
-        val settingsFile = getSettingsFile()
-        if (settingsFile != null && settingsFile.exists()) {
-            val fromFile = parseUrlSettingsFromJson(settingsFile.readText(Charsets.UTF_8))
-            if (fromFile != null) {
-                return fromFile
-            }
-        }
+    private fun retentionToJson(p: RetentionPolicy) = JSONObject().apply { put("value", p.value); put("unit", p.unit.name) }
+    private fun mapToJson(data: Map<String, Long>) = JSONObject().apply { data.forEach { (k, v) -> put(k, v) } }
 
+    private fun loadUrlSettings(): UrlSettings {
+        val f = getSettingsFile()
+        if (f?.exists() == true) {
+            parseUrlSettingsFromJson(f.readText(Charsets.UTF_8))?.let { return it }
+        }
         return defaultUrlSettings()
     }
 
-    private fun saveUrlSettings(settings: UrlSettings) {
-        val json = settingsToJson(settings)
-
-        val settingsFile = getSettingsFile()
-        if (settingsFile != null) {
-            settingsFile.writeText(json, Charsets.UTF_8)
-        }
+    private fun saveUrlSettings(s: UrlSettings) {
+        getSettingsFile()?.writeText(settingsToJson(s), Charsets.UTF_8)
     }
 
     private fun resolveAndLoadByNetwork(forceReload: Boolean = false) {
         val settings = loadUrlSettings()
         enforceRetentionPolicies(settings)
         if (settings.defaultUrl.isBlank()) {
-            showUrlSettingsDialog(forceRequired = true)
+            openSettingsDialogInternal(forceRequired = true)
             return
         }
-
         val target = resolveTarget(settings)
-        if (!forceReload && currentResolvedTarget?.url == target.url) {
-            return
-        }
-
+        if (!forceReload && currentResolvedTarget?.url == target.url) return
         currentResolvedTarget = target
         hasAttemptedFallback = false
         loadUrlWithIsolatedSiteData(target.url)
     }
 
     private fun resolveTarget(settings: UrlSettings): ResolvedTarget {
-        val networkState = NetworkUtils.getNetworkState(this)
-
-        if (networkState.isVpn && !settings.vpnUrl.isNullOrBlank()) {
-            return ResolvedTarget(settings.vpnUrl, UrlSource.VPN)
-        }
-
-        if (networkState.type == NetworkUtils.NetworkType.WIFI) {
-            val currentSsid = normalizeSsid(networkState.wifiSsid.orEmpty())
-            if (currentSsid.isNotBlank()) {
-                val matched = settings.wifiRules.firstOrNull {
-                    it.ssid.equals(currentSsid, ignoreCase = true)
-                }
-                if (matched != null) {
-                    return ResolvedTarget(matched.url, UrlSource.WIFI, currentSsid)
+        val ns = NetworkUtils.getNetworkState(this)
+        if (ns.isVpn && !settings.vpnUrl.isNullOrBlank()) return ResolvedTarget(settings.vpnUrl, UrlSource.VPN)
+        if (ns.type == NetworkUtils.NetworkType.WIFI) {
+            val ssid = normalizeSsid(ns.wifiSsid.orEmpty())
+            if (ssid.isNotBlank()) {
+                settings.wifiRules.firstOrNull { it.ssid.equals(ssid, ignoreCase = true) }?.let {
+                    return ResolvedTarget(it.url, UrlSource.WIFI, ssid)
                 }
             }
         }
-
-        if (networkState.type == NetworkUtils.NetworkType.MOBILE && !settings.mobileUrl.isNullOrBlank()) {
+        if (ns.type == NetworkUtils.NetworkType.MOBILE && !settings.mobileUrl.isNullOrBlank())
             return ResolvedTarget(settings.mobileUrl, UrlSource.MOBILE)
-        }
-
         return ResolvedTarget(settings.defaultUrl, UrlSource.DEFAULT)
     }
 
     private fun loadUrlWithIsolatedSiteData(rawUrl: String) {
         val targetUrl = processUrl(rawUrl)
-        val targetProfileUrl = normalizeProfileUrl(targetUrl)
-        if (activeProfileUrl == targetProfileUrl) {
-            loadWebPage(targetUrl)
-            return
-        }
-
+        val targetProfile = normalizeProfileUrl(targetUrl)
+        if (activeProfileUrl == targetProfile) { loadWebPage(targetUrl); return }
         persistCookiesForUrl(activeProfileUrl)
         switchCookieProfile {
-            restoreCookiesForUrl(targetProfileUrl)
-            activeProfileUrl = targetProfileUrl
-            getPrefs().edit().putString(activeProfileUrlKey, targetProfileUrl).apply()
+            restoreCookiesForUrl(targetProfile)
+            activeProfileUrl = targetProfile
+            getPrefs().edit().putString(activeProfileUrlKey, targetProfile).apply()
             loadWebPage(targetUrl)
         }
     }
 
-    private fun resolveTimeoutSeconds(settings: UrlSettings): Int {
-        return when (currentResolvedTarget?.source) {
-            UrlSource.MOBILE -> settings.mobileTimeoutSec
-            UrlSource.VPN -> settings.vpnTimeoutSec
-            UrlSource.WIFI -> settings.wifiTimeoutSec
-            else -> settings.defaultTimeoutSec
-        }.coerceAtLeast(0)
-    }
-
-    private fun cookieStoreKey(url: String): String {
-        val encodedUrl = Base64.encodeToString(
-            normalizeProfileUrl(url).toByteArray(Charsets.UTF_8),
-            Base64.URL_SAFE or Base64.NO_WRAP
-        )
-        return "PROFILE_COOKIES_$encodedUrl"
-    }
+    private fun cookieStoreKey(url: String) = "PROFILE_COOKIES_${Base64.encodeToString(normalizeProfileUrl(url).toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)}"
 
     private fun persistCookiesForUrl(url: String?) {
-        if (url.isNullOrBlank()) {
-            return
-        }
-        val profileUrl = normalizeProfileUrl(url)
-        val cookies = CookieManager.getInstance().getCookie(profileUrl)
-        getPrefs().edit().putString(cookieStoreKey(profileUrl), cookies ?: "").apply()
-
-        val settings = loadUrlSettings()
-        settings.cookieRecords[profileUrl] = System.currentTimeMillis()
-        saveUrlSettings(settings)
+        if (url.isNullOrBlank()) return
+        val pu = normalizeProfileUrl(url)
+        val cookies = CookieManager.getInstance().getCookie(pu)
+        getPrefs().edit().putString(cookieStoreKey(pu), cookies ?: "").apply()
+        val s = loadUrlSettings(); s.cookieRecords[pu] = System.currentTimeMillis(); saveUrlSettings(s)
     }
 
     private fun restoreCookiesForUrl(url: String) {
-        val profileUrl = normalizeProfileUrl(url)
-        val cookies = getPrefs().getString(cookieStoreKey(profileUrl), null).orEmpty()
-        if (cookies.isBlank()) {
-            return
-        }
-
-        val cookieManager = CookieManager.getInstance()
-        cookies.split(";").map { it.trim() }.filter { it.contains("=") }.forEach { cookie ->
-            cookieManager.setCookie(profileUrl, cookie)
-        }
-        cookieManager.flush()
+        val pu = normalizeProfileUrl(url)
+        val cookies = getPrefs().getString(cookieStoreKey(pu), null).orEmpty()
+        if (cookies.isBlank()) return
+        val cm = CookieManager.getInstance()
+        cookies.split(";").map { it.trim() }.filter { it.contains("=") }.forEach { cm.setCookie(pu, it) }
+        cm.flush()
     }
 
     private fun switchCookieProfile(onDone: () -> Unit) {
-        val cookieManager = CookieManager.getInstance()
-        cookieManager.removeAllCookies {
-            cookieManager.flush()
-            onDone()
-        }
+        CookieManager.getInstance().removeAllCookies { CookieManager.getInstance().flush(); onDone() }
     }
 
     private fun handleMainFrameLoadFailure(errorMessage: String) {
-        val settings = loadUrlSettings()
-        val currentTarget = currentResolvedTarget
-
-        val canFallback = settings.autoFallbackToDefault &&
-            !hasAttemptedFallback &&
-            currentTarget != null &&
-            currentTarget.source != UrlSource.DEFAULT &&
-            currentTarget.source != UrlSource.FALLBACK_DEFAULT &&
-            settings.defaultUrl.isNotBlank() &&
-            currentTarget.url != settings.defaultUrl
-
-        if (canFallback) {
+        val settings = loadUrlSettings(); val ct = currentResolvedTarget
+        if (settings.autoFallbackToDefault && !hasAttemptedFallback && ct != null &&
+            ct.source != UrlSource.DEFAULT && ct.source != UrlSource.FALLBACK_DEFAULT &&
+            settings.defaultUrl.isNotBlank() && ct.url != settings.defaultUrl) {
             hasAttemptedFallback = true
             currentResolvedTarget = ResolvedTarget(settings.defaultUrl, UrlSource.FALLBACK_DEFAULT)
-            Toast.makeText(this, "当前网络 URL 不可用，已回退默认 URL", Toast.LENGTH_SHORT).show()
+            showToast("当前网络 URL 不可用，已回退默认 URL")
             loadUrlWithIsolatedSiteData(settings.defaultUrl)
             return
         }
-
         showErrorDialog(errorMessage)
     }
 
     private fun loadWebPage(url: String) {
-        val settings = loadUrlSettings()
-        startPageLoadTimeout(resolveTimeoutSeconds(settings))
-        webView.loadUrl(url)
+        Log.d(TAG, "loadWebPage: $url")
+        val s = loadUrlSettings()
+        startPageLoadTimeout(when (currentResolvedTarget?.source) {
+            UrlSource.MOBILE -> s.mobileTimeoutSec; UrlSource.VPN -> s.vpnTimeoutSec
+            UrlSource.WIFI -> s.wifiTimeoutSec; else -> s.defaultTimeoutSec
+        }.coerceAtLeast(0))
+        webView?.loadUrl(url)
     }
 
     private fun showErrorDialog(errorMessage: String) {
-        if (isShowingErrorDialog) {
-            return
-        }
+        if (isShowingErrorDialog) return
         isShowingErrorDialog = true
-
-        val contextWrapper = ContextThemeWrapper(this, R.style.Theme_OpenWebUI_Dialog)
-
-        AlertDialog.Builder(contextWrapper)
+        val builder = android.app.AlertDialog.Builder(this)
             .setTitle("连接失败")
             .setMessage("无法连接到服务器: $errorMessage\n\n请检查网络连接或服务器地址是否正确。")
-            .setPositiveButton("重试") { dialog, _ ->
-                currentResolvedTarget?.url?.let { loadUrlWithIsolatedSiteData(it) }
-                isShowingErrorDialog = false
-                dialog.dismiss()
-            }
-            .setNegativeButton("退出") { dialog, _ ->
-                isShowingErrorDialog = false
-                dialog.dismiss()
-                finish()
-            }
+            .setPositiveButton("重试") { d, _ -> currentResolvedTarget?.url?.let { loadUrlWithIsolatedSiteData(it) }; isShowingErrorDialog = false; d.dismiss() }
+            .setNegativeButton("退出") { d, _ -> isShowingErrorDialog = false; d.dismiss(); finish() }
             .setCancelable(false)
-            .show()
+        builder.show()
     }
 
     private fun syncThemeToWeb() {
-        val isDarkMode = resources.configuration.uiMode.and(Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-
-        val script = if (isDarkMode) {
+        val isDark = resources.configuration.uiMode.and(Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val script = if (isDark) {
             "(function() { if(typeof window !== 'undefined' && typeof localStorage !== 'undefined') { document.documentElement.setAttribute('data-theme', 'dark'); document.documentElement.classList.add('dark'); localStorage.setItem('theme', 'dark'); } })();"
         } else {
             "(function() { if(typeof window !== 'undefined' && typeof localStorage !== 'undefined') { document.documentElement.setAttribute('data-theme', 'light'); document.documentElement.classList.remove('dark'); localStorage.setItem('theme', 'light'); } })();"
         }
-
-        if (::webView.isInitialized) {
-            webView.evaluateJavascript(script, null)
-        }
+        webView?.evaluateJavascript(script, null)
     }
 
     private fun injectAppSettingsEntry() {
-        if (!::webView.isInitialized) {
-            return
-        }
-
-        val script = """
+        webView?.evaluateJavascript("""
             (function () {
               if (window.__openWebUiAndroidInjected) return;
               window.__openWebUiAndroidInjected = true;
-
               const LINK_ID = 'openwebui-android-settings-entry';
-
               const buildEntry = () => {
-                const container = document.getElementById('settings-tabs-container');
-                if (!container) return;
                 if (document.getElementById(LINK_ID)) return;
-
-                const entry = document.createElement('a');
+                const tabGeneral = document.getElementById('tab-general');
+                if (!tabGeneral) return;
+                const hr = tabGeneral.querySelector('hr');
+                if (!hr) return;
+                const entry = document.createElement('div');
                 entry.id = LINK_ID;
-                entry.href = 'openwebui-android://settings';
-                entry.draggable = false;
-                entry.className = 'px-0.5 md:px-2.5 py-1 min-w-fit rounded-xl flex-1 md:flex-none flex select-none text-left transition text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white';
-                entry.innerHTML = '<div class="self-center mr-2">&#9881;</div><div class="self-center">App Settings</div>';
-
-                container.appendChild(entry);
+                entry.className = 'py-0.5 flex w-full justify-between';
+                entry.innerHTML = '<div class="self-center text-xs font-medium">App\u8BBE\u7F6E</div>' +
+                  '<button class="p-1 px-3 text-xs flex rounded-sm transition" type="button">' +
+                  '<span class="ml-2 self-center">\u6253\u5F00</span></button>';
+                entry.querySelector('button').addEventListener('click', function(e) {
+                  e.preventDefault(); e.stopPropagation();
+                  window.location = 'openwebui-android://settings';
+                });
+                const target = document.querySelector('#tab-general > div');
+                if (target) target.appendChild(entry);
               };
-
               buildEntry();
-
-              const observer = new MutationObserver(() => {
-                buildEntry();
-              });
-              observer.observe(document.body, { childList: true, subtree: true });
+              new MutationObserver(() => buildEntry()).observe(document.body, { childList: true, subtree: true });
             })();
-        """.trimIndent()
-
-        webView.evaluateJavascript(script, null)
+        """.trimIndent(), null)
     }
+
+    private fun showToast(msg: String) {
+        Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
+    }
+
+    // ── lifecycle ──
 
     override fun onResume() {
         super.onResume()
         syncThemeToWeb()
-        if (::webView.isInitialized) {
-            if (settingsDialog?.isShowing == true) {
-                return
-            }
-            if (loadUrlSettings().defaultUrl.isBlank()) {
-                return
-            }
+        if (webView != null && !showSettingsDialog && loadUrlSettings().defaultUrl.isNotBlank()) {
             ensureWebViewIsHealthy()
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        registerNetworkCallback()
-        handleNetworkChangeEvent()
-    }
-
-    override fun onStop() {
-        unregisterNetworkCallback()
-        super.onStop()
-    }
+    override fun onStart() { super.onStart(); registerNetworkCallback(); handleNetworkChangeEvent() }
+    override fun onStop() { unregisterNetworkCallback(); super.onStop() }
 
     private fun ensureWebViewIsHealthy() {
-        if (webView.url.isNullOrBlank()) {
-            resolveAndLoadByNetwork(forceReload = true)
-        }
+        if (webView?.url.isNullOrBlank()) resolveAndLoadByNetwork(forceReload = true)
     }
 
     private fun registerNetworkCallback() {
-        if (networkCallbackRegistered) {
-            return
-        }
-        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
-        try {
-            connectivityManager.registerNetworkCallback(NetworkRequest.Builder().build(), networkCallback)
-            networkCallbackRegistered = true
-        } catch (_: Exception) {
+        if (networkCallbackRegistered) return
+        (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)?.apply {
+            try { registerNetworkCallback(NetworkRequest.Builder().build(), networkCallback); networkCallbackRegistered = true } catch (_: Exception) {}
         }
     }
 
     private fun unregisterNetworkCallback() {
-        if (!networkCallbackRegistered) {
-            return
-        }
-        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
-        try {
-            connectivityManager.unregisterNetworkCallback(networkCallback)
-        } catch (_: Exception) {
+        if (!networkCallbackRegistered) return
+        (getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)?.apply {
+            try { unregisterNetworkCallback(networkCallback) } catch (_: Exception) {}
         }
         networkCallbackRegistered = false
     }
 
     private fun handleNetworkChangeEvent() {
         runOnUiThread {
-            if (!::webView.isInitialized) {
-                return@runOnUiThread
-            }
-            if (settingsDialog?.isShowing == true) {
-                return@runOnUiThread
-            }
-            if (loadUrlSettings().defaultUrl.isBlank()) {
-                return@runOnUiThread
-            }
+            if (webView == null || showSettingsDialog || loadUrlSettings().defaultUrl.isBlank()) return@runOnUiThread
             resolveAndLoadByNetwork()
         }
     }
 
-    private fun openFileChooser() {
-        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-            type = "*/*"
-            addCategory(Intent.CATEGORY_OPENABLE)
-            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-        }
-
-        filePickerLauncher.launch(intent)
-    }
-
-    private val filePickerLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == RESULT_OK) {
-            val data = result.data
-            if (data != null) {
-                val uris = mutableListOf<Uri>()
-
-                if (data.clipData != null) {
-                    val clipData = data.clipData
-                    for (i in 0 until clipData!!.itemCount) {
-                        uris.add(clipData.getItemAt(i).uri)
-                    }
-                } else if (data.data != null) {
-                    uris.add(data.data!!)
-                }
-
-                filePathCallback?.onReceiveValue(uris.toTypedArray())
-            } else {
-                filePathCallback?.onReceiveValue(null)
-            }
-        } else {
-            filePathCallback?.onReceiveValue(null)
-        }
-        filePathCallback = null
-    }
-
-    private val permissionForFilePickerLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { grantResults ->
-        var allGranted = true
-        for (result in grantResults.values) {
-            if (!result) {
-                allGranted = false
-                break
-            }
-        }
-        if (allGranted) {
-            openFileChooser()
-        } else {
-            filePathCallback?.onReceiveValue(null)
-            filePathCallback = null
-        }
-    }
-
-    private val requestLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { grantResults ->
-        if (pendingPermissionRequest != null) {
-            val grantedResources = mutableListOf<String>()
-            for ((permission, isGranted) in grantResults) {
-                if (isGranted) {
-                    when (permission) {
-                        Manifest.permission.CAMERA -> {
-                            for (resource in pendingPermissionRequest!!.resources) {
-                                if (resource == PermissionRequest.RESOURCE_VIDEO_CAPTURE) {
-                                    grantedResources.add(resource)
-                                }
-                            }
-                        }
-
-                        Manifest.permission.RECORD_AUDIO -> {
-                            for (resource in pendingPermissionRequest!!.resources) {
-                                if (resource == PermissionRequest.RESOURCE_AUDIO_CAPTURE) {
-                                    grantedResources.add(resource)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            pendingPermissionRequest?.grant(grantedResources.toTypedArray())
-            pendingPermissionRequest = null
-        }
-    }
-
-    override fun onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack()
-        } else {
-            super.onBackPressed()
-        }
-    }
-
-    override fun onDestroy() {
-        unregisterNetworkCallback()
-        webView.destroy()
-        super.onDestroy()
-    }
+    override fun onDestroy() { unregisterNetworkCallback(); webView?.destroy(); super.onDestroy() }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        if (::webView.isInitialized) {
-            val webViewState = Bundle()
-            webView.saveState(webViewState)
-            outState.putBundle(WEBVIEW_STATE_KEY, webViewState)
+        webView?.let { val b = Bundle(); it.saveState(b); outState.putBundle(WEBVIEW_STATE_KEY, b) }
+    }
+
+    // ── file picker ──
+
+    private fun openFileChooser() {
+        filePickerLauncher.launch(Intent(Intent.ACTION_GET_CONTENT).apply { type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE); putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true) })
+    }
+
+    private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val d = result.data
+            if (d != null) {
+                val uris = mutableListOf<Uri>()
+                if (d.clipData != null) for (i in 0 until d.clipData!!.itemCount) uris.add(d.clipData!!.getItemAt(i).uri)
+                else d.data?.let { uris.add(it) }
+                filePathCallback?.onReceiveValue(uris.toTypedArray())
+            } else filePathCallback?.onReceiveValue(null)
+        } else filePathCallback?.onReceiveValue(null)
+        filePathCallback = null
+    }
+
+    private val permissionForFilePickerLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        filePathCallback?.let {
+            if (grants.values.all { it }) openFileChooser() else { it.onReceiveValue(null); filePathCallback = null }
         }
     }
 
-    companion object {
-        private const val WEBVIEW_STATE_KEY = "WEBVIEW_STATE"
+    private val requestLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        pendingPermissionRequest?.also { req ->
+            val granted = mutableListOf<String>()
+            grants.forEach { (perm, ok) ->
+                if (ok) when (perm) {
+                    Manifest.permission.CAMERA -> req.resources.filter { it == PermissionRequest.RESOURCE_VIDEO_CAPTURE }.forEach { granted.add(it) }
+                    Manifest.permission.RECORD_AUDIO -> req.resources.filter { it == PermissionRequest.RESOURCE_AUDIO_CAPTURE }.forEach { granted.add(it) }
+                }
+            }
+            req.grant(granted.toTypedArray())
+        }
+        pendingPermissionRequest = null
     }
+
+    // ── permissions ──
+
+    private fun requestPermissions() {
+        Log.d(TAG, "requestPermissions called")
+        val toReq = permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        Log.d(TAG, "Permissions to request: ${toReq.size}")
+        if (toReq.isNotEmpty()) {
+            registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+                it.forEach { (p, ok) -> if (!ok && !shouldShowRequestPermissionRationale(p)) showPermissionDeniedDialog(p) }
+                Log.d(TAG, "Permissions result received, initializing...")
+                initializeAfterPermissions()
+            }.launch(toReq.toTypedArray())
+        } else {
+            Log.d(TAG, "All permissions granted, initializing immediately")
+            initializeAfterPermissions()
+        }
+    }
+
+    private fun initializeAfterPermissions() {
+        Log.d(TAG, "initializeAfterPermissions, webView=$webView")
+        runOnUiThread {
+            if (webView == null) {
+                Log.w(TAG, "webView is null in initializeAfterPermissions, deferring")
+                return@runOnUiThread
+            }
+            if (!restoreWebViewStateIfNeeded()) checkAndLoadServerUrl()
+        }
+    }
+
+    private fun showPermissionDeniedDialog(p: String) {
+        val desc = when (p) { Manifest.permission.CAMERA -> "相机"; Manifest.permission.RECORD_AUDIO -> "麦克风"; Manifest.permission.ACCESS_FINE_LOCATION -> "位置"; else -> "此" }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("需要权限").setMessage("应用需要${desc}权限才能正常使用相应功能。请前往设置手动开启。")
+            .setPositiveButton("去设置") { _, _ -> startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = Uri.parse("package:$packageName") }) }
+            .setNegativeButton("稍后再说", null).setCancelable(false).show()
+    }
+
+    // ── storage helpers ──
+
+    private fun normalizeProfileUrl(url: String) = processUrl(url).trim().removeSuffix("/")
+
+    private fun startPageLoadTimeout(timeoutSec: Int) {
+        cancelPageLoadTimeout()
+        if (timeoutSec <= 0) return
+        pageLoadTimedOut = false
+        val r = Runnable { pageLoadTimedOut = true; handleMainFrameLoadFailure("请求超时（${timeoutSec}秒）") }
+        pageLoadTimeoutRunnable = r; uiHandler.postDelayed(r, timeoutSec * 1000L)
+    }
+
+    private fun cancelPageLoadTimeout() { pageLoadTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }; pageLoadTimeoutRunnable = null; pageLoadTimedOut = false }
+
+    private fun markCurrentUrlDataRecords(url: String?) {
+        if (url.isNullOrBlank()) return
+        val pu = normalizeProfileUrl(url); val now = System.currentTimeMillis()
+        val s = loadUrlSettings(); s.cacheRecords[pu] = now; s.localStorageRecords[webOrigin(url)] = now; saveUrlSettings(s)
+    }
+
+    private fun webOrigin(url: String): String = try {
+        val u = java.net.URI(processUrl(url))
+        val scheme = u.scheme ?: "https"; val host = u.host ?: return normalizeProfileUrl(url)
+        val dp = if (scheme.lowercase() == "http") 80 else if (scheme.lowercase() == "https") 443 else -1
+        val port = if (u.port != -1 && u.port != dp) ":${u.port}" else ""
+        "$scheme://$host$port"
+    } catch (_: Exception) { normalizeProfileUrl(url) }
+
+    private fun retentionUnitToIndex(u: RetentionUnit) = when (u) { RetentionUnit.SECOND -> 0; RetentionUnit.MINUTE -> 1; RetentionUnit.HOUR -> 2; RetentionUnit.DAY -> 3; RetentionUnit.PERMANENT -> 4 }
+
+    private fun retentionMillis(p: RetentionPolicy): Long? = when (p.unit) {
+        RetentionUnit.PERMANENT -> null; RetentionUnit.SECOND -> if (p.value <= 0) 0L else p.value * 1000L
+        RetentionUnit.MINUTE -> if (p.value <= 0) 0L else p.value * 60_000L
+        RetentionUnit.HOUR -> if (p.value <= 0) 0L else p.value * 3_600_000L
+        RetentionUnit.DAY -> if (p.value <= 0) 0L else p.value * 86_400_000L
+    }
+
+    private fun pruneExpiredRecords(records: MutableMap<String, Long>, policy: RetentionPolicy, now: Long): List<String> {
+        val ttl = retentionMillis(policy) ?: return emptyList()
+        if (ttl == 0L) { val all = records.keys.toList(); records.clear(); return all }
+        val expired = records.filter { now - it.value > ttl }.keys.toList(); expired.forEach { records.remove(it) }; return expired
+    }
+
+    private fun enforceRetentionPolicies(s: UrlSettings) {
+        val now = System.currentTimeMillis(); var changed = false
+        if (pruneExpiredRecords(s.cacheRecords, s.cacheRetention, now).isNotEmpty()) { webView?.clearCache(true); changed = true }
+        val lsExpired = pruneExpiredRecords(s.localStorageRecords, s.localStorageRetention, now)
+        if (lsExpired.isNotEmpty()) { lsExpired.forEach { try { WebStorage.getInstance().deleteOrigin(it) } catch (_: Exception) {} }; changed = true }
+        val ckExpired = pruneExpiredRecords(s.cookieRecords, s.cookieRetention, now)
+        if (ckExpired.isNotEmpty()) {
+            val keys = ckExpired.map { cookieStoreKey(it) }; val e = getPrefs().edit(); keys.forEach { e.remove(it) }; e.apply()
+            if (retentionMillis(s.cookieRetention) == 0L) { CookieManager.getInstance().removeAllCookies(null); CookieManager.getInstance().flush() }
+            changed = true
+        }
+        if (changed) saveUrlSettings(s)
+    }
+
+    private fun calculateDirectorySize(file: File?): Long {
+        if (file == null || !file.exists()) return 0L
+        if (file.isFile) return file.length()
+        return file.listFiles()?.sumOf { calculateDirectorySize(it) } ?: 0L
+    }
+
+    private fun calculateStorageStats(settings: UrlSettings): StorageStats {
+        val ad = File(applicationInfo.dataDir); val wvd = File(ad, "app_webview/Default")
+        val cache = calculateDirectorySize(File(wvd, "Cache")) + calculateDirectorySize(cacheDir)
+        val ls = calculateDirectorySize(File(wvd, "Local Storage")) + calculateDirectorySize(File(wvd, "IndexedDB"))
+        val ck = getPrefs().all.filterKeys { it.startsWith("PROFILE_COOKIES_") }.values.mapNotNull { it as? String }.sumOf { it.toByteArray(Charsets.UTF_8).size.toLong() }
+        return StorageStats(StorageCategoryStats(cache, settings.cacheRecords.size), StorageCategoryStats(ls, settings.localStorageRecords.size), StorageCategoryStats(ck, settings.cookieRecords.size))
+    }
+
+    private fun formatStorageStatText(s: StorageCategoryStats): String {
+        val mb = s.sizeBytes.toDouble() / 1024.0 / 1024.0
+        return String.format(Locale.getDefault(), "大小: %.2f M | URL数量: %d", mb, s.count)
+    }
+
+    private fun clearPageCacheData(s: UrlSettings) { webView?.clearCache(true); s.cacheRecords.clear(); saveUrlSettings(s) }
+    private fun clearLocalStorageData(s: UrlSettings) { WebStorage.getInstance().deleteAllData(); s.localStorageRecords.clear(); saveUrlSettings(s) }
+    private fun clearLoginData(s: UrlSettings, onDone: () -> Unit) {
+        val e = getPrefs().edit(); getPrefs().all.filterKeys { it.startsWith("PROFILE_COOKIES_") }.keys.forEach { e.remove(it) }; e.apply()
+        CookieManager.getInstance().removeAllCookies { CookieManager.getInstance().flush(); s.cookieRecords.clear(); saveUrlSettings(s); onDone() }
+    }
+    private fun clearAllStorageData(s: UrlSettings, onDone: () -> Unit) { clearPageCacheData(s); clearLocalStorageData(s); clearLoginData(s, onDone) }
+
+    companion object { private const val TAG = "OpenWebUI"; private const val WEBVIEW_STATE_KEY = "WEBVIEW_STATE" }
 }
