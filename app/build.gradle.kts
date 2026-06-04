@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.File as JFile
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -50,6 +53,62 @@ android {
         compose = true
     }
 }
+
+// Sync OWUI frontend assets from the OWUI source project
+// Set owui.dir in local.properties pointing to your Open-WebUI checkout
+// The task copies the pre-built build/ directory into assets/webui/
+// If build/ is missing, run `npm run build` in the OWUI project first.
+val syncWebAssets by tasks.registering {
+    group = "owui"
+    description = "Copy OWUI frontend build output into app assets"
+
+    val assetsDir = layout.projectDirectory.dir("src/main/assets/webui")
+    val propertiesFile = rootProject.file("local.properties")
+
+    doLast {
+        val owuiDirProp = if (propertiesFile.exists()) {
+            val props = Properties()
+            props.load(propertiesFile.inputStream())
+            props.getProperty("owui.dir")
+        } else null
+
+        if (owuiDirProp.isNullOrBlank()) {
+            logger.lifecycle("[OWUI] owui.dir not set in local.properties, skipping frontend sync")
+            logger.lifecycle("[OWUI] Add: owui.dir=D\\\\:\\\\Open-WebUI")
+            return@doLast
+        }
+
+        val owuiDir = JFile(owuiDirProp)
+        if (!owuiDir.exists()) {
+            logger.warn("[OWUI] Directory not found: $owuiDirProp, skipping")
+            return@doLast
+        }
+
+        val buildDir = JFile(owuiDir, "build")
+        if (!buildDir.exists() || !JFile(buildDir, "index.html").exists()) {
+            logger.warn("[OWUI] build/ not found in $owuiDirProp, run 'npm run build' there first")
+            return@doLast
+        }
+
+        val dest = assetsDir.asFile
+        dest.deleteRecursively()
+        dest.mkdirs()
+
+        buildDir.copyRecursively(dest, true)
+
+        val appDir = JFile(dest, "_app")
+        if (appDir.exists()) {
+            val appChunks = JFile(dest, "app_chunks")
+            appChunks.deleteRecursively()
+            appDir.renameTo(appChunks)
+        }
+
+        val fileCount = dest.walkTopDown().filter { it.isFile }.count()
+        logger.lifecycle("[OWUI] Synced $fileCount files from $owuiDirProp to assets/webui/")
+    }
+}
+
+tasks.named("preBuild") { dependsOn(syncWebAssets) }
 
 dependencies {
     implementation(libs.androidx.appcompat)
